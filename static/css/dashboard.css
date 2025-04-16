@@ -1,0 +1,235 @@
+/* Dashboard Container */
+.dashboard-container {
+    padding: 24px;
+    max-width: 1200px;
+    margin: 0 auto;
+    font-family: 'Segoe UI', Roboto, sans-serif;
+    color: #333;
+}
+
+/* Dashboard Header */
+.dashboard-header {
+    margin-bottom: 32px;
+}
+
+.dashboard-header h2 {
+    font-size: 1.75rem;
+    font-weight: 600;
+    margin: 0;
+    color: #2d3748;
+}
+
+/* Stats Grid */
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 24px;
+    margin-bottom: 32px;
+}
+
+/* Stat Cards */
+.stat-card {
+    background: white;
+    border-radius: 8px;
+    padding: 24px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.stat-card h3 {
+    font-size: 1rem;
+    font-weight: 500;
+    color: #4a5568;
+    margin: 0 0 16px 0;
+}
+
+.stat-value {
+    font-size: 2rem;
+    font-weight: 700;
+    color: #2d3748;
+    margin: 8px 0;
+}
+
+.stat-label {
+    font-size: 0.875rem;
+    color: #718096;
+}
+
+/* Sales Today Special Card */
+.sales-today-card {
+    grid-column: span 1;
+}
+
+.sales-today-value {
+    font-size: 2.5rem;
+    font-weight: 700;
+    color: #2d3748;
+    margin: 8px 0 4px 0;
+}
+
+.sales-today-label {
+    font-size: 1rem;
+    color: #718096;
+    margin-bottom: 8px;
+}
+
+.transaction-count {
+    font-size: 0.875rem;
+    color: #4a5568;
+}
+
+/* Inventory Alert Card */
+.inventory-card {
+    display: flex;
+    flex-direction: column;
+}
+
+.inventory-alert {
+    margin-top: auto;
+}
+
+.inventory-row {
+    display: flex;
+    align-items: center;
+    padding: 8px 0;
+}
+
+.inventory-count {
+    font-weight: 600;
+    margin-right: 8px;
+    min-width: 24px;
+}
+
+/* Top Products */
+.top-products-list {
+    list-style: none;
+    padding: 0;
+    margin: 16px 0 0 0;
+}
+
+.top-products-list li {
+    display: flex;
+    justify-content: space-between;
+    padding: 8px 0;
+    border-bottom: 1px solid #edf2f7;
+}
+
+.top-products-list li:last-child {
+    border-bottom: none;
+}
+
+/* Recent Sections */
+.recent-sections {
+    display: grid;
+    grid-template-columns: 1fr 2fr;
+    gap: 24px;
+    margin-bottom: 32px;
+}
+
+.recent-card {
+    background: white;
+    border-radius: 8px;
+    padding: 24px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.recent-card h3 {
+    font-size: 1rem;
+    font-weight: 500;
+    color: #4a5568;
+    margin: 0 0 16px 0;
+}
+
+.recent-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.recent-list li {
+    padding: 12px 0;
+    border-bottom: 1px solid #edf2f7;
+    font-size: 0.9375rem;
+}
+
+.recent-list li:last-child {
+    border-bottom: none;
+}
+
+/* Transactions Table */
+.transactions-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.875rem;
+}
+
+.transactions-table th {
+    text-align: left;
+    padding: 12px 16px;
+    background-color: #f8fafc;
+    color: #4a5568;
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 0.75rem;
+    letter-spacing: 0.5px;
+}
+
+.transactions-table td {
+    padding: 16px;
+    border-bottom: 1px solid #edf2f7;
+    color: #4a5568;
+}
+
+.transactions-table tr:last-child td {
+    border-bottom: none;
+}
+
+/* Action Buttons */
+.action-buttons {
+    display: flex;
+    gap: 8px;
+}
+
+.action-btn {
+    background: none;
+    border: none;
+    color: #4299e1;
+    cursor: pointer;
+    font-size: 0.8125rem;
+    padding: 4px 8px;
+    border-radius: 4px;
+    transition: background-color 0.2s;
+}
+
+.action-btn:hover {
+    background-color: #ebf8ff;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+    .stats-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .recent-sections {
+        grid-template-columns: 1fr;
+    }
+    
+    .sales-today-value {
+        font-size: 2rem;
+    }
+}
+
+@media (max-width: 480px) {
+    .dashboard-container {
+        padding: 16px;
+    }
+    
+    .stat-card, .recent-card {
+        padding: 16px;
+    }
+    
+    .transactions-table {
+        display: block;
+        overflow-x: auto;
+    }
+}

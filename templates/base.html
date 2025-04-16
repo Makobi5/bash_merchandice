@@ -1,0 +1,73 @@
+--- START OF FILE base.html ---
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}General Merchandise Management{% endblock %}</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+    <!-- Ensure you have a main.css or adjust path as needed -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}">
+    {% block styles %}{% endblock %}
+</head>
+<body>
+    <header class="main-header">
+        <div class="header-content">
+            <div class="logo">
+                <a href="{{ url_for('dashboard') }}">Bash Merchandise Manager</a>
+            </div>
+            {% if user %} {# Check if user exists in context #}
+            <div class="user-info">
+                 {# Access user info safely using .get() #}
+                <span>{{ user.get('email', 'User') }} ({{ user.get('role', 'role') }})</span>
+                <a href="{{ url_for('logout') }}" class="logout-btn">Logout</a>
+            </div>
+            {% endif %}
+        </div>
+    </header>
+
+    {# Only show nav if user is logged in #}
+    {% if user %}
+    <nav class="main-nav">
+        <ul>
+            <li><a href="{{ url_for('dashboard') }}" class="{{ 'active' if request.endpoint == 'dashboard' }}">Dashboard</a></li>
+            <li><a href="{{ url_for('products') }}" class="{{ 'active' if request.endpoint == 'products' }}">Products</a></li>
+            <li><a href="{{ url_for('transactions') }}" class="{{ 'active' if request.endpoint == 'transactions' }}">Transactions</a></li>
+            <li><a href="{{ url_for('customers') }}" class="{{ 'active' if request.endpoint == 'customers' }}">Customers</a></li>
+            <li><a href="{{ url_for('reports') }}" class="{{ 'active' if request.endpoint == 'reports' }}">Reports</a></li>
+            {# Optionally hide Users based on role #}
+            {% if user.get('role') == 'admin' %}
+            <li><a href="{{ url_for('users') }}" class="{{ 'active' if request.endpoint == 'users' }}">Users</a></li>
+            {% endif %}
+        </ul>
+    </nav>
+    {% endif %}
+
+    <main class="main-content">
+        {# --- CORRECTED FLASH MESSAGE HANDLING --- #}
+        {% with messages = get_flashed_messages(with_categories=true) %} {# Get messages WITH categories #}
+          {% if messages %}
+            <div class="flash-messages">
+              {% for category, message in messages %} {# Loop through category, message pairs #}
+                {# Use category for styling (e.g., alert-success, alert-danger) #}
+                <div class="flash-message alert-{{ category }}">{{ message }}</div>
+              {% endfor %}
+            </div>
+          {% endif %}
+        {% endwith %}
+        {# --- END CORRECTION --- #}
+
+        {% block content %}{% endblock %}
+    </main>
+
+    <footer class="main-footer">
+        {# Ensure 'now' is available from context processor #}
+        <p>© {% if now %}{{ now().year }}{% else %}{{ '' }}{% endif %} Bash Merchandise Manager</p>
+    </footer>
+
+    <!-- Ensure you have a main.js or adjust path as needed -->
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

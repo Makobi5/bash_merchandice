@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ title }} - General Merchandise Management</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+        }
+        .report-header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .report-title {
+            font-size: 22px;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        .report-subtitle {
+            font-size: 16px;
+            margin-bottom: 10px;
+        }
+        .report-date {
+            font-size: 12px;
+            color: #666;
+        }
+        .report-summary {
+            margin-bottom: 30px;
+            padding: 15px;
+            background-color: #f9f9f9;
+            border-radius: 5px;
+        }
+        .report-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        .report-table th, 
+        .report-table td {
+            border: 1px solid #ddd;
+            padding: 10px;
+            text-align: left;
+        }
+        .report-table th {
+            background-color: #f2f2f2;
+        }
+        .report-footer {
+            margin-top: 30px;
+            font-size: 12px;
+            text-align: center;
+            color: #666;
+        }
+        @media print {
+            body {
+                padding: 0;
+                font-size: 12px;
+            }
+            .report-title {
+                font-size: 18px;
+            }
+            .report-subtitle {
+                font-size: 14px;
+            }
+            .no-print {
+                display: none;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="report-header">
+        <div class="report-title">General Merchandise Management</div>
+        <div class="report-subtitle">{{ title }}</div>
+        <div class="report-date">Generated on: {{ generation_date }}</div>
+    </div>
+    
+    <div class="report-summary">
+        <h3>Summary</h3>
+        <p><strong>Total Sales:</strong> ${{ total_sales }}</p>
+        <p><strong>Total Transactions:</strong> {{ total_transactions }}</p>
+    </div>
+    
+    <h3>Transaction Details</h3>
+    <table class="report-table">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Date</th>
+                <th>Customer</th>
+                <th>Amount</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for transaction in transactions %}
+            <tr>
+                <td>{{ transaction.id }}</td>
+                <td>{{ transaction.date }}</td>
+                <td>{{ transaction.customer }}</td>
+                <td>${{ transaction.total }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    
+    <div class="report-footer">
+        &copy; {{ now().year }} General Merchandise Management
+    </div>
+    
+    <div class="no-print" style="text-align: center; margin-top: 30px;">
+        <button onclick="window.print()">Print Report</button>
+        <button onclick="window.close()">Close</button>
+    </div>
+    
+    <script>
+        // Auto-print when the page loads
+        window.onload = function() {
+            setTimeout(function() {
+                window.print();
+            }, 500);
+        };
+    </script>
+</body>
+</html>

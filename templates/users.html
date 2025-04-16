@@ -1,0 +1,298 @@
+--- START OF FILE users.html ---
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- Changed Title -->
+    <title>Bash Merchandise Manager - Users</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" integrity="sha512-9usAa10IRO0HhonpyAIVpjrylPvoDwiPUiKdWk5t3PyolY1cOd4DSE0Ga+ri4AuTroPR5aQvXU9xC6qOPnzFeg==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+    <style>
+        /* Copied all styles from dashboard.html for consistency */
+        :root {
+            --primary: #4361ee;
+            --secondary: #3f37c9;
+            --light: #f8f9fa;
+            --dark: #212529;
+            --gray: #6c757d;
+            --success: #4cc9f0;
+            --warning: #f8961e;
+            --danger: #f72585;
+        }
+        
+        body {
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f5f7fa;
+            color: var(--dark);
+        }
+        
+        .dashboard-container {
+            display: grid;
+            grid-template-columns: 250px 1fr;
+            min-height: 100vh;
+        }
+        
+        /* Sidebar */
+        .sidebar {
+            background: white;
+            box-shadow: 2px 0 10px rgba(0,0,0,0.1);
+            padding: 20px 0;
+        }
+        
+        .logo {
+            padding: 0 20px 20px;
+            border-bottom: 1px solid #eee;
+            margin-bottom: 20px;
+        }
+        
+        .logo h2 {
+            margin: 0;
+            color: var(--primary);
+        }
+        
+        .nav-menu {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+        
+        .nav-menu li a {
+            display: block;
+            padding: 12px 20px;
+            color: var(--dark);
+            text-decoration: none;
+            transition: all 0.2s;
+        }
+        
+        .nav-menu li a:hover, .nav-menu li a.active {
+            background-color: #f0f4ff;
+            color: var(--primary);
+            border-left: 3px solid var(--primary);
+            padding-left: 17px; 
+        }
+        
+        /* Main Content */
+        .main-content {
+            padding: 30px;
+            overflow-y: auto; 
+        }
+        
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 30px;
+        }
+        
+        .page-title h1 {
+            margin: 0;
+            font-size: 1.8rem;
+        }
+        
+        /* Optional: Add specific controls for Users page */
+        .page-controls {
+             display: flex;
+            gap: 10px;
+        }
+
+        .btn {
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: 500;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            text-decoration: none; 
+        }
+        
+        .btn-primary {
+            background-color: var(--primary);
+            color: white;
+            border: none;
+        }
+        
+        .btn-outline {
+            background: white;
+            border: 1px solid #ddd;
+            color: var(--gray);
+        }
+
+        .btn-outline i {
+           color: var(--gray); 
+        }
+
+        /* Card for holding the table */
+         .content-card {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+            margin-bottom: 30px; /* Add some space below the card */
+        }
+
+        /* Reusing Transactions Table styles - consider renaming if needed */
+        .data-table-wrapper { 
+            overflow-x: auto;
+        }
+
+        .data-table { /* Renamed from transactions-table for generality */
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+            min-width: 600px; /* Ensure table has minimum width */
+        }
+        
+        .data-table th {
+            text-align: left;
+            padding: 12px 15px;
+            background-color: #f8f9fa;
+            color: var(--gray);
+            font-weight: 500;
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            white-space: nowrap; 
+        }
+        
+        .data-table td {
+            padding: 15px;
+            border-bottom: 1px solid #eee;
+            font-size: 0.9rem; 
+            /* Removed white-space: nowrap for user names/emails */
+        }
+
+        /* Added specific styling for status badges */
+        .status-badge {
+            padding: 3px 8px;
+            border-radius: 12px;
+            font-size: 0.8rem;
+            font-weight: 500;
+            display: inline-block;
+        }
+        .status-active {
+            background-color: #e6f7ec; /* Light green */
+            color: #1d8348;      /* Dark green */
+        }
+        .status-inactive {
+            background-color: #fdedec; /* Light red */
+            color: #c0392b;      /* Dark red */
+        }
+        
+        .action-btn {
+            background: none;
+            border: none;
+            color: var(--primary);
+            cursor: pointer;
+            margin-right: 10px;
+            font-size: 0.9rem;
+            padding: 0; 
+            text-decoration: underline; 
+        }
+        .action-btn:hover {
+            color: var(--secondary); 
+        }
+        
+    </style>
+</head>
+<body>
+    <div class="dashboard-container">
+        <!-- Sidebar Navigation -->
+        <div class="sidebar">
+            <div class="logo">
+                <h2>Bash Merchandise</h2>
+            </div>
+            <ul class="nav-menu">
+                <!-- Moved 'active' class to Users link -->
+                <li><a href="dashboard.html">Dashboard</a></li> 
+                <li><a href="products.html">Products</a></li>
+                <li><a href="transactions.html">Transactions</a></li>
+                <li><a href="customers.html">Customers</a></li>
+                <li><a href="reports.html">Reports</a></li>
+                <li><a href="users.html" class="active">Users</a></li> 
+            </ul>
+        </div>
+        
+        <!-- Main Content Area -->
+        <div class="main-content">
+            <div class="header">
+                <div class="page-title">
+                    <!-- Changed Page Title -->
+                    <h1>Manage Users</h1> 
+                </div>
+                <div class="page-controls">
+                    <!-- Added button specific to user management -->
+                     <button class="btn btn-primary">
+                        <i class="fas fa-plus"></i> Add New User
+                    </button>
+                </div>
+            </div>
+            
+            <!-- Users Table -->
+            <div class="content-card"> 
+                <div class="data-table-wrapper"> 
+                    <table class="data-table"> 
+                        <thead>
+                            <tr>
+                                <th>User ID</th>
+                                <th>Name</th>
+                                <th>Email</th>
+                                <th>Role</th>
+                                <th>Status</th>
+                                <th>Date Added</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- Sample User Row 1 -->
+                            <tr>
+                                <td>USR-001</td>
+                                <td>Admin User</td>
+                                <td>admin@bashmerch.com</td>
+                                <td>Administrator</td>
+                                <td><span class="status-badge status-active">Active</span></td>
+                                <td>2025-01-15</td>
+                                <td>
+                                    <button class="action-btn">Edit</button> 
+                                    <button class="action-btn">Delete</button>
+                                </td>
+                            </tr>
+                             <!-- Sample User Row 2 -->
+                            <tr>
+                                <td>USR-002</td>
+                                <td>Jane Manager</td>
+                                <td>jane.m@bashmerch.com</td>
+                                <td>Manager</td>
+                                <td><span class="status-badge status-active">Active</span></td>
+                                <td>2025-02-20</td>
+                                <td>
+                                    <button class="action-btn">Edit</button> 
+                                    <button class="action-btn">Delete</button>
+                                </td>
+                            </tr>
+                             <!-- Sample User Row 3 -->
+                             <tr>
+                                <td>USR-003</td>
+                                <td>Bob Staff</td>
+                                <td>bob.s@bashmerch.com</td>
+                                <td>Staff</td>
+                                <td><span class="status-badge status-inactive">Inactive</span></td>
+                                <td>2025-03-10</td>
+                                <td>
+                                    <button class="action-btn">Edit</button> 
+                                    <button class="action-btn">Delete</button>
+                                </td>
+                            </tr>
+                            <!-- Add more user rows as needed -->
+                            
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            
+        </div>
+    </div>
+</body>
+</html>

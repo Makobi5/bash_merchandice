@@ -1,0 +1,332 @@
+
+
+{% extends 'base.html' %}
+
+{% block title %}Bash Merchandise Manager - Dashboard{% endblock %}
+
+{% block styles %}
+    <!-- Add any styles specific to dashboard.html HERE if needed -->
+    <!-- Or link a separate CSS file specific to the dashboard -->
+    <style>
+        /* Keep ONLY the styles specific to the dashboard content, 
+           NOT general layout styles like body, sidebar, header etc.
+           Those are handled by base.html and main.css */
+
+        .header { /* Example: Maybe dashboard has its own header section */
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 30px;
+        }
+
+        .page-title h1 {
+            margin: 0;
+            font-size: 1.8rem;
+        }
+
+        .report-controls {
+            display: flex;
+            gap: 10px;
+        }
+
+        .report-dropdown {
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+
+        .btn {
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: 500;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            text-decoration: none;
+        }
+
+        .btn-primary { /* Assuming these button styles might be reused or specific */
+            background-color: var(--primary);
+            color: white;
+            border: none;
+        }
+
+        .btn-outline {
+            background: white;
+            border: 1px solid #ddd;
+            color: var(--gray);
+        }
+
+        .btn-outline i {
+           color: var(--gray);
+        }
+
+        /* Stats Grid */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .stat-card {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+        }
+
+        .stat-card h3 {
+            margin-top: 0;
+            color: var(--gray);
+            font-size: 1rem;
+        }
+
+        .stat-value {
+            font-size: 2rem;
+            font-weight: 700;
+            margin: 5px 0;
+            color: var(--dark);
+        }
+
+        .stat-label {
+            color: var(--gray);
+            font-size: 0.9rem;
+        }
+
+        /* Inventory Alerts */
+        .inventory-alerts {
+            display: flex;
+            gap: 15px;
+            margin-top: 15px;
+        }
+
+        .alert-item {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            font-size: 0.9rem;
+        }
+
+        .alert-count {
+            font-weight: 600;
+        }
+
+        .low-stock {
+            color: var(--warning);
+        }
+
+        .out-stock {
+            color: var(--danger);
+        }
+
+        /* Recent Activity */
+        .activity-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+        }
+
+        .recent-card {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+        }
+
+        .recent-card h3 {
+            margin-top: 0;
+            color: var(--gray);
+            font-size: 1rem;
+        }
+
+        .recent-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+
+        .recent-list li {
+            padding: 12px 0;
+            border-bottom: 1px solid #eee;
+            font-size: 0.9rem;
+        }
+
+        .recent-list li:last-child {
+            border-bottom: none;
+        }
+
+        /* Transactions Table */
+        .transactions-table-wrapper {
+            overflow-x: auto;
+        }
+
+        .transactions-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+            min-width: 500px;
+        }
+
+        .transactions-table th {
+            text-align: left;
+            padding: 12px 15px;
+            background-color: #f8f9fa;
+            color: var(--gray);
+            font-weight: 500;
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            white-space: nowrap;
+        }
+
+        .transactions-table td {
+            padding: 15px;
+            border-bottom: 1px solid #eee;
+            font-size: 0.9rem;
+            white-space: nowrap;
+        }
+
+        .action-btn {
+            background: none;
+            border: none;
+            color: var(--primary);
+            cursor: pointer;
+            margin-right: 10px;
+            font-size: 0.9rem;
+            padding: 0;
+            text-decoration: underline;
+        }
+        .action-btn:hover {
+            color: var(--secondary);
+        }
+
+        /* Define CSS Variables if not defined in main.css referenced by base.html */
+        /* It's better to have these in main.css */
+        :root {
+            --primary: #4361ee;
+            --secondary: #3f37c9;
+            --light: #f8f9fa;
+            --dark: #212529;
+            --gray: #6c757d;
+            --success: #4cc9f0;
+            --warning: #f8961e;
+            --danger: #f72585;
+        }
+    </style>
+{% endblock %}
+
+
+{% block content %}
+    <!-- REMOVED the outer dashboard-container, sidebar, logo, nav-menu -->
+    <!-- Those should come from base.html -->
+
+    <!-- Keep ONLY the main content specific to the dashboard -->
+    <div class="header">
+        <div class="page-title">
+            <h1>Dashboard</h1>
+        </div>
+        <div class="report-controls">
+            <select class="report-dropdown">
+                <option>Daily Report</option>
+                <option>Weekly Report</option>
+                <option>Monthly Report</option>
+            </select>
+            <button class="btn btn-outline">
+                <i class="fas fa-download"></i> Download
+            </button>
+            <button class="btn btn-outline">
+                <i class="fas fa-print"></i> Print
+            </button>
+        </div>
+    </div>
+
+    <!-- Stats Overview -->
+    <div class="stats-grid">
+        <div class="stat-card">
+            <h3>Sales Today</h3>
+            <!-- Use the format_ugx helper from Flask context processor -->
+            <div class="stat-value">{{ format_ugx(total_sales) }}</div>
+            <div class="stat-label">Total Sales</div>
+            <div class="stat-label">{{ total_transactions }} Transactions</div>
+        </div>
+
+        <div class="stat-card">
+            <h3>Top Products</h3>
+            <ol class="recent-list">
+                {% for product in top_products %}
+                    <li>{{ product.name }} - {{ product.units }} units</li>
+                {% else %}
+                    <li>No product sales today.</li>
+                {% endfor %}
+            </ol>
+        </div>
+
+        <div class="stat-card">
+            <h3>Inventory Alert</h3>
+            <div class="inventory-alerts">
+                <div class="alert-item">
+                    <span class="alert-count low-stock">{{ low_stock_count }}</span>
+                    <span>Low Stock</span>
+                </div>
+                <div class="alert-item">
+                    <span class="alert-count out-stock">{{ out_of_stock_count }}</span>
+                    <span>Out of Stock</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Recent Activity -->
+    <div class="activity-grid">
+        <div class="recent-card">
+            <h3>Recent Customers</h3>
+            <ul class="recent-list">
+                 {% for customer in recent_customers %}
+                    <li>{{ customer.name }} - {{ customer.time_ago }}</li>
+                 {% else %}
+                    <li>No recent customer activity.</li>
+                 {% endfor %}
+            </ul>
+        </div>
+
+        <div class="recent-card">
+            <h3>Recent Transactions</h3>
+            <div class="transactions-table-wrapper">
+                <table class="transactions-table">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Date</th>
+                            <th>Customer</th>
+                            <th>Total</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                         {% for txn in recent_transactions %}
+                            <tr>
+                                <td>{{ txn.id }}</td>
+                                <td>{{ txn.date }}</td>
+                                <td>{{ txn.customer_name }}</td>
+                                <td>{{ format_ugx(txn.total) }}</td>
+                                <td>
+                                    <button class="action-btn">View</button>
+                                    <button class="action-btn">Edit</button>
+                                </td>
+                            </tr>
+                         {% else %}
+                            <tr>
+                                <td colspan="5">No recent transactions today.</td>
+                            </tr>
+                         {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+{% endblock %}
+
+{% block scripts %}
+    <!-- Add any JavaScript specific to dashboard.html HERE -->
+{% endblock %}
