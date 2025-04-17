@@ -1,5 +1,3 @@
-
-
 {% extends 'base.html' %}
 
 {% block title %}Bash Merchandise Manager - Dashboard{% endblock %}
@@ -8,15 +6,17 @@
     <!-- Add any styles specific to dashboard.html HERE if needed -->
     <!-- Or link a separate CSS file specific to the dashboard -->
     <style>
-        /* Keep ONLY the styles specific to the dashboard content, 
-           NOT general layout styles like body, sidebar, header etc.
-           Those are handled by base.html and main.css */
+        /* Styles specific to the dashboard content */
+        /* These should ideally be in a separate CSS file or <style> in base.html if common */
+        /* But placing them here works too */
 
-        .header { /* Example: Maybe dashboard has its own header section */
+        .dashboard-header { /* Renamed from .header to avoid conflict if base.html has one */
             display: flex;
             justify-content: space-between;
             align-items: center;
             margin-bottom: 30px;
+            flex-wrap: wrap; /* Allow wrapping on smaller screens */
+            gap: 15px; /* Add gap for wrapped items */
         }
 
         .page-title h1 {
@@ -27,12 +27,16 @@
         .report-controls {
             display: flex;
             gap: 10px;
+            flex-wrap: wrap; /* Allow buttons/dropdown to wrap */
         }
 
         .report-dropdown {
             padding: 8px 12px;
             border: 1px solid #ddd;
             border-radius: 4px;
+            background-color: white; /* Ensure background */
+            color: var(--dark); /* Ensure text color */
+            height: 38px; /* Match button height approx */
         }
 
         .btn {
@@ -44,28 +48,40 @@
             align-items: center;
             gap: 6px;
             text-decoration: none;
+            border: 1px solid transparent; /* Base border */
+            line-height: 1.5; /* Standard line height */
+            height: 38px; /* Consistent height */
+            box-sizing: border-box; /* Include padding/border in height */
         }
 
-        .btn-primary { /* Assuming these button styles might be reused or specific */
-            background-color: var(--primary);
+
+        .btn-primary {
+            background-color: var(--primary, #4361ee); /* Added fallback */
             color: white;
             border: none;
+        }
+        .btn-primary:hover {
+             background-color: var(--secondary, #3f37c9);
         }
 
         .btn-outline {
             background: white;
             border: 1px solid #ddd;
-            color: var(--gray);
+            color: var(--gray, #6c757d); /* Added fallback */
+        }
+        .btn-outline:hover {
+            background-color: #f8f9fa; /* Light background on hover */
+            border-color: #ccc;
         }
 
         .btn-outline i {
-           color: var(--gray);
+           color: var(--gray, #6c757d);
         }
 
         /* Stats Grid */
         .stats-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); /* Adjusted min size */
             gap: 20px;
             margin-bottom: 30px;
         }
@@ -75,70 +91,90 @@
             border-radius: 8px;
             padding: 20px;
             box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+            border: 1px solid #eee; /* Subtle border */
         }
 
         .stat-card h3 {
             margin-top: 0;
-            color: var(--gray);
+            margin-bottom: 15px; /* Space below title */
+            color: var(--gray, #6c757d);
             font-size: 1rem;
+            font-weight: 500; /* Slightly less bold */
         }
 
         .stat-value {
             font-size: 2rem;
-            font-weight: 700;
+            font-weight: 600; /* Slightly less bold than 700 */
             margin: 5px 0;
-            color: var(--dark);
+            color: var(--dark, #212529);
+            line-height: 1.2; /* Adjust line height */
         }
 
         .stat-label {
-            color: var(--gray);
-            font-size: 0.9rem;
+            color: var(--gray, #6c757d);
+            font-size: 0.85rem; /* Slightly smaller */
+            margin-top: 5px;
         }
 
-        /* Inventory Alerts */
+        /* Inventory Alerts Specifics */
         .inventory-alerts {
             display: flex;
-            gap: 15px;
-            margin-top: 15px;
+            flex-direction: column; /* Stack vertically */
+            gap: 10px; /* Space between items */
+            margin-top: 10px;
         }
 
         .alert-item {
             display: flex;
             align-items: center;
-            gap: 5px;
-            font-size: 0.9rem;
+            gap: 8px;
+            font-size: 0.95rem;
         }
 
         .alert-count {
-            font-weight: 600;
+            font-weight: 700; /* Make count bold */
+            font-size: 1.1em; /* Slightly larger count */
+            min-width: 20px; /* Ensure space for number */
+            text-align: right;
         }
 
-        .low-stock {
-            color: var(--warning);
+        .low-stock .alert-count { /* Color the count */
+            color: var(--warning, #f8961e);
         }
 
-        .out-stock {
-            color: var(--danger);
+        .out-stock .alert-count { /* Color the count */
+            color: var(--danger, #f72585);
         }
 
         /* Recent Activity */
         .activity-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+             /* Force two columns for wider screens, stack on smaller */
+            grid-template-columns: 1fr;
             gap: 20px;
         }
+        /* Use media query for larger screens if desired */
+         @media (min-width: 768px) {
+            .activity-grid {
+                grid-template-columns: 1fr 1fr;
+            }
+        }
+
 
         .recent-card {
             background: white;
             border-radius: 8px;
             padding: 20px;
             box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+             border: 1px solid #eee; /* Subtle border */
         }
 
         .recent-card h3 {
             margin-top: 0;
-            color: var(--gray);
+             margin-bottom: 15px; /* Space below title */
+            color: var(--gray, #6c757d);
             font-size: 1rem;
+            font-weight: 500;
         }
 
         .recent-list {
@@ -148,68 +184,107 @@
         }
 
         .recent-list li {
-            padding: 12px 0;
+            display: flex; /* Use flex for better alignment */
+            justify-content: space-between; /* Push time/units to the right */
+            padding: 10px 0; /* Adjusted padding */
             border-bottom: 1px solid #eee;
             font-size: 0.9rem;
+            gap: 10px; /* Space between name and time/units */
         }
+         .recent-list li span:last-child {
+            color: var(--gray, #6c757d); /* Dim the time/units */
+            white-space: nowrap; /* Prevent wrapping */
+        }
+
 
         .recent-list li:last-child {
             border-bottom: none;
         }
+        .recent-list li.empty-message {
+             justify-content: center;
+             color: var(--gray, #6c757d);
+             font-style: italic;
+        }
 
-        /* Transactions Table */
+
+        /* Transactions Table Specifics */
         .transactions-table-wrapper {
-            overflow-x: auto;
+            overflow-x: auto; /* Enable horizontal scroll on small screens */
         }
 
         .transactions-table {
             width: 100%;
             border-collapse: collapse;
             margin-top: 15px;
-            min-width: 500px;
+            min-width: 500px; /* Ensure minimum width before scrollbar appears */
         }
 
+        .transactions-table th,
+        .transactions-table td {
+            padding: 10px 12px; /* Adjust padding */
+            border-bottom: 1px solid #eee;
+            font-size: 0.9rem;
+            white-space: nowrap; /* Prevent wrapping */
+            vertical-align: middle; /* Align vertically */
+            text-align: left; /* Default align left */
+        }
         .transactions-table th {
-            text-align: left;
-            padding: 12px 15px;
             background-color: #f8f9fa;
-            color: var(--gray);
-            font-weight: 500;
+            color: var(--gray, #6c757d);
+            font-weight: 600; /* Slightly bolder header */
             font-size: 0.8rem;
             text-transform: uppercase;
             white-space: nowrap;
         }
-
-        .transactions-table td {
-            padding: 15px;
-            border-bottom: 1px solid #eee;
-            font-size: 0.9rem;
-            white-space: nowrap;
+        .transactions-table td:last-child, /* Align actions column */
+        .transactions-table th:last-child {
+             text-align: right;
+        }
+         .transactions-table td:nth-child(4), /* Align Total column */
+        .transactions-table th:nth-child(4) {
+             text-align: right;
         }
 
-        .action-btn {
+
+        .transactions-table tr:last-child td {
+             border-bottom: none; /* Remove border on last row */
+        }
+        .transactions-table .empty-row td {
+             text-align: center;
+             color: var(--gray, #6c757d);
+             font-style: italic;
+             padding: 20px;
+        }
+
+
+        .action-btn { /* Style as links */
             background: none;
             border: none;
-            color: var(--primary);
+            color: var(--primary, #4361ee);
             cursor: pointer;
-            margin-right: 10px;
+            margin-left: 10px; /* Space between actions */
             font-size: 0.9rem;
             padding: 0;
-            text-decoration: underline;
+            text-decoration: none; /* Remove underline */
         }
         .action-btn:hover {
-            color: var(--secondary);
+            color: var(--secondary, #3f37c9);
+            text-decoration: underline; /* Underline on hover */
+        }
+        .action-btn i { /* If using icons inside buttons */
+            margin-right: 4px;
         }
 
-        /* Define CSS Variables if not defined in main.css referenced by base.html */
-        /* It's better to have these in main.css */
+
+        /* Define CSS Variables if not defined in main.css */
+        /* It's best practice to define these once in main.css */
         :root {
             --primary: #4361ee;
             --secondary: #3f37c9;
             --light: #f8f9fa;
             --dark: #212529;
             --gray: #6c757d;
-            --success: #4cc9f0;
+            --success: #4cc9f0; /* Note: Often green is expected for success */
             --warning: #f8961e;
             --danger: #f72585;
         }
@@ -218,24 +293,23 @@
 
 
 {% block content %}
-    <!-- REMOVED the outer dashboard-container, sidebar, logo, nav-menu -->
-    <!-- Those should come from base.html -->
-
-    <!-- Keep ONLY the main content specific to the dashboard -->
-    <div class="header">
+    {# Use the specific class name defined in styles #}
+    <div class="dashboard-header">
         <div class="page-title">
             <h1>Dashboard</h1>
         </div>
         <div class="report-controls">
-            <select class="report-dropdown">
-                <option>Daily Report</option>
-                <option>Weekly Report</option>
-                <option>Monthly Report</option>
+            {# Use unique IDs for JS targeting if needed later #}
+            <select id="reportPeriodSelect" class="report-dropdown">
+                <option value="daily">Daily Report</option>
+                <option value="weekly">Weekly Report</option>
+                <option value="monthly">Monthly Report</option>
             </select>
-            <button class="btn btn-outline">
+            {# Link the download button to the API endpoint #}
+            <a href="#" id="downloadReportBtn" class="btn btn-outline">
                 <i class="fas fa-download"></i> Download
-            </button>
-            <button class="btn btn-outline">
+            </a>
+            <button id="printReportBtn" class="btn btn-outline" disabled> {# Disable print for now #}
                 <i class="fas fa-print"></i> Print
             </button>
         </div>
@@ -247,30 +321,31 @@
             <h3>Sales Today</h3>
             <!-- Use the format_ugx helper from Flask context processor -->
             <div class="stat-value">{{ format_ugx(total_sales) }}</div>
-            <div class="stat-label">Total Sales</div>
             <div class="stat-label">{{ total_transactions }} Transactions</div>
         </div>
 
         <div class="stat-card">
             <h3>Top Products</h3>
-            <ol class="recent-list">
+            {# Use ol for ordered list, ul for unordered #}
+            <ul class="recent-list">
                 {% for product in top_products %}
-                    <li>{{ product.name }} - {{ product.units }} units</li>
+                    {# Use spans for better structure if needed #}
+                    <li><span>{{ product.name }}</span> <span>{{ product.units }} units</span></li>
                 {% else %}
-                    <li>No product sales today.</li>
+                    <li class="empty-message">No product sales today.</li>
                 {% endfor %}
-            </ol>
+            </ul>
         </div>
 
         <div class="stat-card">
             <h3>Inventory Alert</h3>
             <div class="inventory-alerts">
-                <div class="alert-item">
-                    <span class="alert-count low-stock">{{ low_stock_count }}</span>
+                <div class="alert-item low-stock">
+                    <span class="alert-count">{{ low_stock_count }}</span>
                     <span>Low Stock</span>
                 </div>
-                <div class="alert-item">
-                    <span class="alert-count out-stock">{{ out_of_stock_count }}</span>
+                <div class="alert-item out-stock">
+                    <span class="alert-count">{{ out_of_stock_count }}</span>
                     <span>Out of Stock</span>
                 </div>
             </div>
@@ -283,9 +358,9 @@
             <h3>Recent Customers</h3>
             <ul class="recent-list">
                  {% for customer in recent_customers %}
-                    <li>{{ customer.name }} - {{ customer.time_ago }}</li>
+                    <li><span>{{ customer.name }}</span> <span>{{ customer.time_ago }}</span></li>
                  {% else %}
-                    <li>No recent customer activity.</li>
+                    <li class="empty-message">No recent customer activity.</li>
                  {% endfor %}
             </ul>
         </div>
@@ -308,16 +383,18 @@
                             <tr>
                                 <td>{{ txn.id }}</td>
                                 <td>{{ txn.date }}</td>
-                                <td>{{ txn.customer_name }}</td>
+                                <td>{{ txn.customer_name | default('N/A') }}</td> {# Added default filter #}
                                 <td>{{ format_ugx(txn.total) }}</td>
                                 <td>
-                                    <button class="action-btn">View</button>
-                                    <button class="action-btn">Edit</button>
+                                    {# Add links to view/edit if routes exist #}
+                                    <a href="{{ url_for('view_transaction', txn_id=txn.id) }}" class="action-btn" title="View Details"><i class="fas fa-eye"></i></a>
+                                    <a href="{{ url_for('edit_transaction', txn_id=txn.id) }}" class="action-btn" title="Edit Transaction"><i class="fas fa-edit"></i></a>
+                                    {# Ensure view_transaction and edit_transaction routes exist #}
                                 </td>
                             </tr>
                          {% else %}
-                            <tr>
-                                <td colspan="5">No recent transactions today.</td>
+                            <tr class="empty-row">
+                                <td colspan="5">No recent transactions found.</td> {# Updated message #}
                             </tr>
                          {% endfor %}
                     </tbody>
@@ -329,4 +406,33 @@
 
 {% block scripts %}
     <!-- Add any JavaScript specific to dashboard.html HERE -->
+    <script>
+        // Add functionality to the Download Report button
+        const downloadBtn = document.getElementById('downloadReportBtn');
+        const periodSelect = document.getElementById('reportPeriodSelect');
+
+        if (downloadBtn && periodSelect) {
+            downloadBtn.addEventListener('click', function(event) {
+                event.preventDefault(); // Prevent default link behavior
+                const selectedPeriod = periodSelect.value;
+                // Construct the URL using Flask's url_for (can't be done directly in static JS)
+                // We need to build the URL string manually here.
+                // Ensure your Flask API route is '/api/reports/<period>'
+                const reportUrl = `/api/reports/${selectedPeriod}`;
+                console.log('Requesting report:', reportUrl);
+                window.location.href = reportUrl; // Navigate to trigger download
+            });
+        }
+
+         // Basic print functionality (prints the whole page)
+        const printBtn = document.getElementById('printReportBtn');
+        if (printBtn) {
+             // Enable the print button if needed, or implement specific printing logic
+             // printBtn.disabled = false;
+            printBtn.addEventListener('click', function() {
+                window.print();
+            });
+        }
+
+    </script>
 {% endblock %}

@@ -1,5 +1,3 @@
---- START OF FILE base.html ---
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -20,7 +18,8 @@
             {% if user %} {# Check if user exists in context #}
             <div class="user-info">
                  {# Access user info safely using .get() #}
-                <span>{{ user.get('email', 'User') }} ({{ user.get('role', 'role') }})</span>
+                 {# Display role from session, capitalize it #}
+                <span>{{ user.get('email', 'User') }} ({{ user.get('role', 'role') | capitalize }})</span>
                 <a href="{{ url_for('logout') }}" class="logout-btn">Logout</a>
             </div>
             {% endif %}
@@ -31,39 +30,42 @@
     {% if user %}
     <nav class="main-nav">
         <ul>
-            <li><a href="{{ url_for('dashboard') }}" class="{{ 'active' if request.endpoint == 'dashboard' }}">Dashboard</a></li>
-            <li><a href="{{ url_for('products') }}" class="{{ 'active' if request.endpoint == 'products' }}">Products</a></li>
-            <li><a href="{{ url_for('transactions') }}" class="{{ 'active' if request.endpoint == 'transactions' }}">Transactions</a></li>
-            <li><a href="{{ url_for('customers') }}" class="{{ 'active' if request.endpoint == 'customers' }}">Customers</a></li>
-            <li><a href="{{ url_for('reports') }}" class="{{ 'active' if request.endpoint == 'reports' }}">Reports</a></li>
-            {# Optionally hide Users based on role #}
+            <li><a href="{{ url_for('dashboard') }}" class="{{ 'active' if request.endpoint == 'dashboard' else '' }}">Dashboard</a></li>
+            <li><a href="{{ url_for('products') }}" class="{{ 'active' if request.endpoint == 'products' else '' }}">Products</a></li>
+            <li><a href="{{ url_for('transactions') }}" class="{{ 'active' if request.endpoint == 'transactions' else '' }}">Transactions</a></li>
+            <li><a href="{{ url_for('customers') }}" class="{{ 'active' if request.endpoint == 'customers' else '' }}">Customers</a></li>
+            <li><a href="{{ url_for('reports') }}" class="{{ 'active' if request.endpoint == 'reports' else '' }}">Reports</a></li>
+            {# --- START: Conditional Users Link --- #}
+            {# Check the role stored in the session user dictionary #}
             {% if user.get('role') == 'admin' %}
-            <li><a href="{{ url_for('users') }}" class="{{ 'active' if request.endpoint == 'users' }}">Users</a></li>
+            <li><a href="{{ url_for('users') }}" class="{{ 'active' if request.endpoint == 'users' else '' }}">Users</a></li>
             {% endif %}
+            {# --- END: Conditional Users Link --- #}
         </ul>
     </nav>
     {% endif %}
 
     <main class="main-content">
-        {# --- CORRECTED FLASH MESSAGE HANDLING --- #}
-        {% with messages = get_flashed_messages(with_categories=true) %} {# Get messages WITH categories #}
+        {# Flash Message Handling #}
+        {% with messages = get_flashed_messages(with_categories=true) %}
           {% if messages %}
-            <div class="flash-messages">
-              {% for category, message in messages %} {# Loop through category, message pairs #}
-                {# Use category for styling (e.g., alert-success, alert-danger) #}
+            {# Add a container for styling if needed #}
+            <div class="flash-messages-container" style="padding: 0 20px;"> {# Example container styling #}
+              {% for category, message in messages %}
+                {# Use a common class and category-specific class #}
+                {# Ensure your css/main.css has styles for .flash-message and .alert-* #}
                 <div class="flash-message alert-{{ category }}">{{ message }}</div>
               {% endfor %}
             </div>
           {% endif %}
         {% endwith %}
-        {# --- END CORRECTION --- #}
 
         {% block content %}{% endblock %}
     </main>
 
     <footer class="main-footer">
         {# Ensure 'now' is available from context processor #}
-        <p>© {% if now %}{{ now().year }}{% else %}{{ '' }}{% endif %} Bash Merchandise Manager</p>
+        <p>© {% if now %}{{ now.year }}{% else %}{{ '' }}{% endif %} Bash Merchandise Manager</p> {# Corrected now() call to now.year #}
     </footer>
 
     <!-- Ensure you have a main.js or adjust path as needed -->
