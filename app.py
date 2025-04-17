@@ -59,102 +59,90 @@ def check_supabase():
 def inject_globals():
     user_info = session.get('user', None) # Get user info dict from session
 
-    # --- Fetch current role from DB if user is logged in ---
+    # --- Fetch current role AND names from DB if user is logged in ---
     if user_info and 'id' in user_info:
-        # Only check supabase connection *if* we need to query
         if check_supabase():
             auth_user_id = user_info.get('id')
             try:
-                # Query the public.users table using the auth_user_id stored in the session
+                # Query public.users for role, first_name, last_name
                 response = supabase.table('users') \
-                    .select('role') \
+                    .select('role, first_name, last_name') \
                     .eq('auth_user_id', auth_user_id) \
                     .maybe_single() \
                     .execute()
 
                 if response.data:
-                    # Update the role in the user_info dict with the value from the database
-                    user_info['role'] = response.data.get('role', 'user') # Default to 'user' if role is null in DB
+                    # Update user_info dict with values from the database
+                    user_info['role'] = response.data.get('role', 'user')
+                    user_info['first_name'] = response.data.get('first_name') # Will be None if null in DB
+                    user_info['last_name'] = response.data.get('last_name')  # Will be None if null in DB
                 else:
                     # Handle case where user exists in Auth but not yet in public.users
-                    print(f"WARNING: No profile found in public.users for auth_id {auth_user_id}. Defaulting role.")
-                    # Use the role from session (set during login) or default
+                    print(f"WARNING: No profile found in public.users for auth_id {auth_user_id}. Using session defaults.")
+                    # Use the role/names from session (set during login) or defaults
                     user_info['role'] = user_info.get('role', 'user')
+                    user_info['first_name'] = user_info.get('first_name') # Get potential initial value
+                    user_info['last_name'] = user_info.get('last_name')  # Get potential initial value
+
 
             except Exception as e:
-                print(f"ERROR: Could not fetch role from DB for auth_id {auth_user_id}: {e}")
-                # Fallback to existing session role or 'user' on error
+                print(f"ERROR: Could not fetch role/name from DB for auth_id {auth_user_id}: {e}")
+                # Fallback to existing session values or defaults on error
                 user_info['role'] = user_info.get('role', 'user')
+                user_info['first_name'] = user_info.get('first_name')
+                user_info['last_name'] = user_info.get('last_name')
         else:
-             # If DB connection fails, keep the role from the session
-             print("WARNING: DB connection failed in context_processor, using session role.")
+             # If DB connection fails, keep the values from the session
+             print("WARNING: DB connection failed in context_processor, using session values.")
              user_info['role'] = user_info.get('role', 'user')
+             user_info['first_name'] = user_info.get('first_name')
+             user_info['last_name'] = user_info.get('last_name')
 
 
     # --- Define format_ugx helper ---
-    # This needs to be defined within the scope or passed correctly
     def format_ugx(value):
-        try:
-            amount = float(value)
-            return f"UGX {amount:,.0f}"
-        except (ValueError, TypeError):
-           return "UGX 0"
+        try: amount = float(value); return f"UGX {amount:,.0f}"
+        except (ValueError, TypeError): return "UGX 0"
 
     # --- Return the dictionary for the template context ---
-    # This MUST be the final statement of the function
     return dict(user=user_info, format_ugx=format_ugx, now=datetime.datetime.utcnow)
 # --- END OF CORRECTED CONTEXT PROCESSOR ---
 
-# --- LOGIN ROUTE (No changes needed here for the fix) ---
+# --- MODIFIED LOGIN ROUTE (Only to store initial names) ---
 @app.route('/login', methods=['GET', 'POST'])
 def login():
-    # Check if Supabase client is initialized
     if not check_supabase():
-         # Flash message here is okay as it's a user-facing route
-         flash("Application error: Database connection failed. Please contact support.", "danger")
+         flash("Application error: Database connection failed.", "danger")
          return render_template('login.html', error='System configuration error.')
-
-    # If user is already logged in, redirect to dashboard
-    if 'access_token' in session and 'user' in session:
-        return redirect(url_for('dashboard'))
+    if 'access_token' in session and 'user' in session: return redirect(url_for('dashboard'))
 
     if request.method == 'POST':
         email = request.form.get('email')
         password = request.form.get('password')
-
         if not email or not password:
             flash('Email and password are required.', 'warning')
             return render_template('login.html')
-
         try:
-            auth_response = supabase.auth.sign_in_with_password({
-                "email": email,
-                "password": password
-            })
-
+            auth_response = supabase.auth.sign_in_with_password({"email": email, "password": password})
             user = auth_response.user
             session['access_token'] = auth_response.session.access_token
             session['refresh_token'] = auth_response.session.refresh_token
-            # Store initial role from metadata - context_processor will override if possible
+            # Store initial values from metadata (context processor will update if possible)
             session['user'] = {
-                'id': str(user.id), # Ensure ID is stored as string if needed later
+                'id': str(user.id),
                 'email': user.email,
-                'role': user.user_metadata.get('role', 'user') if user.user_metadata else 'user'
+                'role': user.user_metadata.get('role', 'user') if user.user_metadata else 'user',
+                'first_name': user.user_metadata.get('first_name') if user.user_metadata else None,
+                'last_name': user.user_metadata.get('last_name') if user.user_metadata else None,
             }
-
-            print(f"Login successful for {email}. Initial session role: {session['user']['role']}")
+            print(f"Login successful for {email}. Initial session data: {session['user']}")
             flash('Login successful!', 'success')
             return redirect(url_for('dashboard'))
-
         except Exception as e:
             error_message = str(e)
-            if "Invalid login credentials" in error_message:
-                flash('Invalid email or password.', 'danger')
-            else:
-                flash('An error occurred during login. Please try again.', 'danger')
-                print(f"Login error for {email}: {error_message}") # Log the full error
+            if "Invalid login credentials" in error_message: flash('Invalid email or password.', 'danger')
+            else: flash('An error occurred during login.', 'danger'); print(f"Login error for {email}: {error_message}")
             return render_template('login.html')
-
     return render_template('login.html')
 
 
@@ -259,11 +247,12 @@ def dashboard():
         )
 
 
-# --- REGISTER ROUTE (No changes needed here for the fix) ---
+# --- MODIFIED REGISTER ROUTE ---
 @app.route('/register', methods=['GET', 'POST'])
 def register():
     if not check_supabase():
-        flash("Application error: Database connection failed. Please contact support.", "danger")
+        flash("Application error: Database connection failed.", "danger")
+        # Assuming registration form is part of login.html
         return render_template('login.html', reg_error='System configuration error.')
 
     if 'access_token' in session and 'user' in session:
@@ -273,32 +262,56 @@ def register():
         email = request.form.get('email')
         password = request.form.get('password')
         confirm_password = request.form.get('confirm_password')
+        first_name = request.form.get('first_name', '').strip() # Get and strip whitespace
+        last_name = request.form.get('last_name', '').strip()   # Get and strip whitespace
 
+        # --- Validation ---
         error = None
-        if not email or not password or not confirm_password: error = "All fields are required."
+        if not email or not password or not confirm_password or not first_name or not last_name:
+            error = "All fields (First Name, Last Name, Email, Password, Confirm Password) are required."
         elif not re.match(r"^\S+@\S+\.\S+$", email): error = "Invalid email format."
         elif len(password) < 8: error = "Password must be at least 8 characters."
         elif password != confirm_password: error = "Passwords do not match."
+        # Basic name validation (optional)
+        elif len(first_name) < 1: error = "First name cannot be empty."
+        elif len(last_name) < 1: error = "Last name cannot be empty."
+
 
         if error:
             flash(error, 'danger')
-            return render_template('login.html', reg_email=email)
+            # Return form values to refill the form, except passwords
+            # Pass back names and email to the template context for the form
+            return render_template('login.html', reg_email=email, reg_first_name=first_name, reg_last_name=last_name)
 
         try:
-            user_role_to_set = "user"
+            user_role_to_set = "user" # Default role for new signups
+            # --- Register user with Supabase Auth (include names in metadata) ---
             auth_response = supabase.auth.sign_up({
-                "email": email, "password": password,
-                "options": {"data": {"role": user_role_to_set}}
+                "email": email,
+                "password": password,
+                "options": {
+                    "data": {
+                        "role": user_role_to_set,
+                        "first_name": first_name, # Add to metadata
+                        "last_name": last_name    # Add to metadata
+                    }
+                }
             })
 
             if auth_response.user:
                  auth_user = auth_response.user
                  print(f"Auth Registration successful for {email}. Auth User ID: {auth_user.id}")
+
+                 # --- Add user to public.users table (include names) ---
                  try:
-                     username = email.split('@')[0]
+                     username = email.split('@')[0] # Or derive differently if needed
                      user_profile_data = {
-                         'auth_user_id': str(auth_user.id), 'email': email,
-                         'username': username, 'role': user_role_to_set,
+                         'auth_user_id': str(auth_user.id),
+                         'email': email,
+                         'username': username,
+                         'role': user_role_to_set,
+                         'first_name': first_name, # Add to profile data
+                         'last_name': last_name    # Add to profile data
                      }
                      print(f"Attempting to insert into public.users: {user_profile_data}")
                      insert_response = supabase.table('users').insert(user_profile_data).execute()
@@ -309,12 +322,16 @@ def register():
                      else:
                          error_details = getattr(insert_response, 'error', None) or getattr(insert_response, 'message', 'Unknown error')
                          print(f"WARNING: Auth user created, but FAILED to insert profile data into public.users for {email}. Response: {error_details}")
+                         # Potentially attempt to delete the auth user here for consistency? Or rely on manual cleanup.
                          flash("Registration successful, but profile creation failed. Please contact support.", 'warning')
 
                  except Exception as profile_error:
                      print(f"CRITICAL: Auth user created, but EXCEPTION occurred inserting into public.users for {email}: {profile_error}")
+                     # Potentially attempt to delete the auth user here.
                      flash("Registration successful, but profile setup encountered an issue. Please contact support.", 'warning')
-                 return redirect(url_for('login'))
+
+                 return redirect(url_for('login')) # Redirect to login regardless of profile insert status for now
+
             else:
                  print(f"Registration response for {email} did not contain user object. Response: {auth_response}")
                  flash("Registration submitted, but encountered an issue. Please check email or try again.", 'warning')
@@ -323,17 +340,21 @@ def register():
         except Exception as e:
             error_message = str(e)
             print(f"Registration error: {error_message}")
-            if 'User already registered' in error_message or ('status_code' in dir(e) and getattr(e, 'status_code', 0) == 400) or 'duplicate key value violates unique constraint "users_email_key"' in error_message:
+            # Handle specific errors
+            if 'User already registered' in error_message or ('status_code' in dir(e) and getattr(e, 'status_code', 0) == 400) or 'users_email_key' in error_message:
                  flash("This email address is already registered.", 'warning')
-            elif 'duplicate key value violates unique constraint "users_username_key"' in error_message: # If username is unique
+            elif 'users_username_key' in error_message :
                  flash("This username is already taken.", 'warning')
-            elif 'duplicate key value violates unique constraint' in error_message : # General duplicate
+            elif 'duplicate key value violates unique constraint' in error_message :
                  flash("An account with this email or username might already exist.", 'warning')
             else:
-                flash(f"Registration failed: {error_message}", 'danger') # Show more specific error if possible
-            return render_template('login.html', reg_email=email)
+                flash(f"Registration failed: {error_message}", 'danger')
+            # Pass back names and email
+            return render_template('login.html', reg_email=email, reg_first_name=first_name, reg_last_name=last_name)
 
-    return render_template('login.html')
+    # GET request - show the login/register page
+    # Pass empty strings initially for the reg form fields
+    return render_template('login.html', reg_email='', reg_first_name='', reg_last_name='')
 
 # --- LOGOUT ROUTE (No changes needed here for the fix) ---
 @app.route('/logout')
@@ -423,7 +444,7 @@ def reports():
     return render_template('reports.html')
 
 
-# --- USERS ROUTE (Using DB role check) ---
+# --- MODIFIED USERS ROUTE ---
 @app.route('/users')
 @login_required
 def users():
@@ -431,44 +452,30 @@ def users():
         flash("Database connection failed.", "danger")
         return redirect(url_for('dashboard'))
 
-    # --- Authorization Check using DB Role ---
+    # Authorization Check using DB Role (no change needed here)
     current_user_session = session.get('user')
     if not current_user_session or 'id' not in current_user_session:
         flash("Authentication error.", "danger")
         return redirect(url_for('login'))
-
     auth_user_id = current_user_session.get('id')
     user_is_admin = False
     try:
-        response = supabase.table('users') \
-            .select('role') \
-            .eq('auth_user_id', auth_user_id) \
-            .maybe_single() \
-            .execute()
-        if response.data and response.data.get('role') == 'admin':
-            user_is_admin = True
-        # Optional: Log non-admin access attempt here if needed
-        # else: print(f"DB role check: User {auth_user_id} is not admin.")
-
-    except Exception as e:
-        print(f"ERROR: Could not perform role check query for auth_id {auth_user_id}: {e}")
-        user_is_admin = False # Deny access on error
-
+        response = supabase.table('users').select('role').eq('auth_user_id', auth_user_id).maybe_single().execute()
+        if response.data and response.data.get('role') == 'admin': user_is_admin = True
+    except Exception as e: print(f"ERROR: Could not perform role check query for auth_id {auth_user_id}: {e}"); user_is_admin = False
     if not user_is_admin:
         flash("You do not have permission to view this page.", "warning")
         return redirect(url_for('dashboard'))
-    # --- END: Authorization Check ---
 
-    # --- Proceed with fetching user data if authorized ---
+    # --- Proceed with fetching user data (add first_name, last_name) ---
     try:
+        # Select the new name columns
         response = supabase.table('users') \
-            .select('id, username, email, role, auth_user_id') \
+            .select('id, username, email, role, auth_user_id, first_name, last_name') \
             .order('username', desc=False) \
             .execute()
         users_data = response.data if response.data else []
-        # print(f"Fetched {len(users_data)} users for admin view.") # Less verbose logging
         return render_template('users.html', users=users_data)
-
     except Exception as e:
         print(f"Error fetching users list from public.users: {e}")
         flash("Could not load user data due to a server error.", "danger")

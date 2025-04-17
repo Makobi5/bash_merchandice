@@ -15,11 +15,15 @@
             <div class="logo">
                 <a href="{{ url_for('dashboard') }}">Bash Merchandise Manager</a>
             </div>
-            {% if user %} {# Check if user exists in context #}
+            {% if user %}
             <div class="user-info">
-                 {# Access user info safely using .get() #}
-                 {# Display role from session, capitalize it #}
-                <span>{{ user.get('email', 'User') }} ({{ user.get('role', 'role') | capitalize }})</span>
+                 {# --- START: Modified User Display --- #}
+                 {# Display First Name if available, otherwise Email #}
+                 <span>
+                     Welcome, {{ user.get('first_name') | default(user.get('email', 'User')) }}
+                     ({{ user.get('role', 'role') | capitalize }})
+                 </span>
+                 {# --- END: Modified User Display --- #}
                 <a href="{{ url_for('logout') }}" class="logout-btn">Logout</a>
             </div>
             {% endif %}
