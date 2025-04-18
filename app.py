@@ -11,6 +11,7 @@ from reportlab.lib.pagesizes import letter
 from supabase import create_client, Client
 from supabase.lib.client_options import ClientOptions
 from dotenv import load_dotenv
+import babel.dates
 from dateutil.relativedelta import relativedelta # For time difference formatting
 # Removed duplicate import: from flask import request, get_flashed_messages (already imported via Flask)
 
@@ -180,6 +181,7 @@ def time_ago(dt_string):
         return "Invalid date"
 
 # --- DASHBOARD ROUTE (No changes needed here for the fix) ---
+# --- MODIFIED DASHBOARD ROUTE ---
 @app.route('/dashboard')
 @login_required
 def dashboard():
@@ -187,42 +189,66 @@ def dashboard():
     if not check_supabase():
         flash("Application error: Database connection failed. Please contact support.", "danger")
         # Render fallback dashboard even if context processor also failed
-        return render_template('dashboard.html', error='Database connection failed.', total_sales=0, total_transactions=0, top_products=[], low_stock_count=0, out_of_stock_count=0, recent_customers=[], recent_transactions=[])
+        # Removed recent_customers from the fallback render_template context
+        return render_template('dashboard.html', error='Database connection failed.', total_sales=0, total_transactions=0, top_products=[], low_stock_count=0, out_of_stock_count=0, recent_transactions=[])
 
     try:
         today_start = datetime.datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
         today_end = today_start + datetime.timedelta(days=1)
 
-        # Fetch Dashboard Data (keep existing logic)
+        # --- Fetch Sales and Transaction Counts (Unchanged) ---
         sales_response = supabase.table('transactions').select('total_amount').gte('date', today_start.isoformat()).lt('date', today_end.isoformat()).execute()
         total_sales = sum(txn['total_amount'] for txn in sales_response.data) if sales_response.data else 0
 
         txn_count_response = supabase.table('transactions').select('id', count='exact').gte('date', today_start.isoformat()).lt('date', today_end.isoformat()).execute()
         total_transactions = txn_count_response.count if hasattr(txn_count_response, 'count') else 0
 
+        # --- Fetch Top Products (Unchanged) ---
         top_products_response = supabase.rpc('get_top_products', {'query_date': today_start.date().isoformat()}).execute()
         top_products = [{'name': p['name'], 'units': p['units']} for p in top_products_response.data] if top_products_response.data else []
 
+        # --- Fetch Inventory Alerts (Unchanged) ---
         low_stock_response = supabase.table('products').select('id', count='exact').gt('stock_quantity', 0).lte('stock_quantity', 5).execute()
         low_stock_count = low_stock_response.count if hasattr(low_stock_response, 'count') else 0
 
         out_of_stock_response = supabase.table('products').select('id', count='exact').eq('stock_quantity', 0).execute()
         out_of_stock_count = out_of_stock_response.count if hasattr(out_of_stock_response, 'count') else 0
 
-        recent_customers_response = supabase.rpc('get_recent_customers').execute()
-        recent_customers = []
-        if recent_customers_response.data:
-            for customer in recent_customers_response.data:
-                recent_customers.append({'name': customer.get('name', 'Unknown'), 'time_ago': time_ago(customer.get('latest_transaction'))})
+        # --- REMOVED 'get_recent_customers' RPC Call ---
+        # recent_customers_response = supabase.rpc('get_recent_customers').execute()
+        # recent_customers = [] # Set to empty or remove if not needed by template
+        # if recent_customers_response.data:
+        #     for customer in recent_customers_response.data:
+        #         recent_customers.append({'name': customer.get('name', 'Unknown'), 'time_ago': time_ago(customer.get('latest_transaction'))})
+        # --- END REMOVAL ---
 
-        recent_transactions_response = supabase.table('transactions').select('id, transaction_code, date, total_amount, customers(name)').order('date', desc=True).limit(5).execute()
+        # --- MODIFIED: Fetch recent transactions WITHOUT 'customers(name)' ---
+        # Also selecting 'created_by_user_id' to potentially display user later
+        recent_transactions_response = supabase.table('transactions') \
+            .select('id, transaction_code, date, total_amount, created_by_user_id') \
+            .order('date', desc=True) \
+            .limit(5) \
+            .execute()
+        # --- END MODIFICATION ---
+
         recent_transactions = []
         if recent_transactions_response.data:
+            # TODO: OPTIONAL - Fetch user names for display if needed
+            # user_ids = {txn['created_by_user_id'] for txn in recent_transactions_response.data if txn['created_by_user_id']}
+            # user_map = {}
+            # if user_ids:
+            #     user_response = supabase.table('users').select('id, first_name, last_name').in_('id', list(user_ids)).execute()
+            #     if user_response.data:
+            #         user_map = {user['id']: f"{user['first_name']} {user['last_name']}" for user in user_response.data}
+
             for txn in recent_transactions_response.data:
+                # creator_name = user_map.get(txn['created_by_user_id'], 'System/Unknown') # Example if fetching users
                 recent_transactions.append({
                     'id': txn['transaction_code'],
                     'date': datetime.datetime.fromisoformat(txn['date'].replace('Z', '+00:00')).strftime('%d/%m/%Y %I:%M %p'),
-                    'customer_name': txn['customers']['name'] if txn['customers'] else 'N/A',
+                    # --- REMOVED 'customer_name' ---
+                    # 'customer_name': txn['customers']['name'] if txn['customers'] else 'N/A',
+                    # 'creator_name': creator_name, # Example if fetching users
                     'total': txn['total_amount']
                 })
 
@@ -233,17 +259,21 @@ def dashboard():
             top_products=top_products,
             low_stock_count=low_stock_count,
             out_of_stock_count=out_of_stock_count,
-            recent_customers=recent_customers,
+            # --- REMOVED 'recent_customers' ---
+            # recent_customers=recent_customers,
             recent_transactions=recent_transactions
         )
 
     except Exception as e:
         print(f"Dashboard error: {str(e)}")
-        flash(f"Error loading dashboard data: {str(e)}", "danger")
+        # Log the specific error, but provide a generic message to the user
+        flash(f"Error loading dashboard data. Please check server logs.", "danger")
+        # Render fallback dashboard even if context processor also failed
+        # Removed recent_customers from the fallback render_template context
         return render_template(
             'dashboard.html', total_sales=0, total_transactions=0, top_products=[],
-            low_stock_count=0, out_of_stock_count=0, recent_customers=[], recent_transactions=[],
-            error="Could not load all dashboard data."
+            low_stock_count=0, out_of_stock_count=0, recent_transactions=[],
+            error="Could not load dashboard data."
         )
 
 
@@ -423,20 +453,77 @@ def transactions():
         return render_template('transactions.html', transactions=[])
 
 
-@app.route('/customers')
+# --- ADD EMPLOYEES ROUTE ---
+@app.route('/employees')
 @login_required
-def customers():
+def employees():
     if not check_supabase():
         flash("Database connection failed.", "danger")
-        return render_template('customers.html', customers=[])
-    try:
-        response = supabase.table('customers').select('*').order('name').execute()
-        return render_template('customers.html', customers=response.data or [])
-    except Exception as e:
-        print(f"Error fetching customers: {e}")
-        flash("Could not load customer data.", "danger")
-        return render_template('customers.html', customers=[])
+        return redirect(url_for('dashboard'))
 
+    # --- Authorization Check: Only Admins ---
+    current_user_session = session.get('user')
+    if not current_user_session or 'id' not in current_user_session:
+        flash("Authentication error.", "danger")
+        return redirect(url_for('login'))
+
+    auth_user_id = current_user_session.get('id')
+    user_is_admin = False
+    try:
+        response = supabase.table('users').select('role').eq('auth_user_id', auth_user_id).maybe_single().execute()
+        if response.data and response.data.get('role') == 'admin':
+            user_is_admin = True
+    except Exception as e:
+        print(f"ERROR: Could not perform role check query for auth_id {auth_user_id}: {e}")
+        user_is_admin = False
+
+    if not user_is_admin:
+        flash("You do not have permission to view this page.", "warning")
+        return redirect(url_for('dashboard'))
+    # --- End Authorization Check ---
+
+    # --- Fetch Employee Data and Activity using RPC ---
+    try:
+        # Call the database function
+        response = supabase.rpc('get_employees_with_activity').execute() # Make sure function name matches exactly
+        employees_data = response.data if response.data else []
+
+        # The sorting (admins first, then name) is now handled by the database function
+
+        return render_template('employees.html', employees=employees_data)
+
+    except Exception as e:
+        print(f"Error fetching employees list via RPC: {e}")
+        # You might want to check if the error is specifically because the function doesn't exist
+        if "relation \"get_employees_with_activity\" does not exist" in str(e):
+             flash("Application error: Required database function is missing. Please contact support.", "danger")
+        else:
+            flash("Could not load employee data due to a server error.", "danger")
+        return render_template('employees.html', employees=[]) # Render page with empty list on error
+# --- END OF EMPLOYEES ROUTE ---
+
+@app.template_filter('format_datetime')
+def format_datetime_filter(value, format='medium'):
+    if value is None:
+        return ""
+    # Ensure it's a datetime object
+    if isinstance(value, str):
+        try:
+            # Attempt to parse ISO format with optional fraction and timezone
+            value = datetime.datetime.fromisoformat(value.replace('Z', '+00:00'))
+        except ValueError:
+            return value # Return original string if parsing fails
+    if format == 'full':
+        fmt = "EEEE, d. MMMM y 'at' HH:mm:ss zzzz"
+    elif format == 'medium':
+        fmt = "dd.MM.y HH:mm:ss"
+    elif format == '%d %b %Y': # Custom format example
+         fmt = 'dd MMM yyyy'
+    else:
+        fmt = format
+    # Use UTC if timezone-naive, otherwise keep original timezone
+    tz = datetime.timezone.utc if value.tzinfo is None else None
+    return babel.dates.format_datetime(value, fmt, locale='en', tzinfo=tz)
 
 @app.route('/reports')
 @login_required

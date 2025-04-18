@@ -15,7 +15,7 @@
             <div class="logo">
                 <a href="{{ url_for('dashboard') }}">Bash Merchandise Manager</a>
             </div>
-            {% if user %}
+            {% if user %} {# Opens if user for header #}
             <div class="user-info">
                  {# --- START: Modified User Display --- #}
                  {# Display First Name if available, otherwise Email #}
@@ -26,33 +26,41 @@
                  {# --- END: Modified User Display --- #}
                 <a href="{{ url_for('logout') }}" class="logout-btn">Logout</a>
             </div>
-            {% endif %}
+            {% endif %} {# Closes if user for header #}
         </div>
     </header>
 
     {# Only show nav if user is logged in #}
-    {% if user %}
+    {% if user %} {# Opens if user for nav #}
     <nav class="main-nav">
         <ul>
             <li><a href="{{ url_for('dashboard') }}" class="{{ 'active' if request.endpoint == 'dashboard' else '' }}">Dashboard</a></li>
             <li><a href="{{ url_for('products') }}" class="{{ 'active' if request.endpoint == 'products' else '' }}">Products</a></li>
             <li><a href="{{ url_for('transactions') }}" class="{{ 'active' if request.endpoint == 'transactions' else '' }}">Transactions</a></li>
-            <li><a href="{{ url_for('customers') }}" class="{{ 'active' if request.endpoint == 'customers' else '' }}">Customers</a></li>
+
+            {# --- Moved Reports link outside of admin check --- #}
             <li><a href="{{ url_for('reports') }}" class="{{ 'active' if request.endpoint == 'reports' else '' }}">Reports</a></li>
-            {# --- START: Conditional Users Link --- #}
+
+            {# --- START: Conditional Admin Links (Employees) --- #}
+            {% if user.get('role') == 'admin' %} {# Opens if admin for Employees #}
+            <li><a href="{{ url_for('employees') }}" class="{{ 'active' if request.endpoint == 'employees' else '' }}">Employees</a></li>
+            {% endif %} {# Closes if admin for Employees #}
+            {# --- END: Conditional Admin Links (Employees) --- #}
+
+            {# --- START: Conditional Admin Links (Users) --- #}
             {# Check the role stored in the session user dictionary #}
-            {% if user.get('role') == 'admin' %}
+            {% if user.get('role') == 'admin' %} {# Opens if admin for Users #}
             <li><a href="{{ url_for('users') }}" class="{{ 'active' if request.endpoint == 'users' else '' }}">Users</a></li>
-            {% endif %}
-            {# --- END: Conditional Users Link --- #}
+            {% endif %} {# Closes if admin for Users #}
+            {# --- END: Conditional Admin Links (Users) --- #}
         </ul>
     </nav>
-    {% endif %}
+    {% endif %} {# Closes if user for nav #}
 
     <main class="main-content">
         {# Flash Message Handling #}
         {% with messages = get_flashed_messages(with_categories=true) %}
-          {% if messages %}
+          {% if messages %} {# Opens if messages #}
             {# Add a container for styling if needed #}
             <div class="flash-messages-container" style="padding: 0 20px;"> {# Example container styling #}
               {% for category, message in messages %}
@@ -61,7 +69,7 @@
                 <div class="flash-message alert-{{ category }}">{{ message }}</div>
               {% endfor %}
             </div>
-          {% endif %}
+          {% endif %} {# Closes if messages #}
         {% endwith %}
 
         {% block content %}{% endblock %}

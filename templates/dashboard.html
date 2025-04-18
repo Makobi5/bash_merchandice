@@ -355,17 +355,6 @@
     <!-- Recent Activity -->
     <div class="activity-grid">
         <div class="recent-card">
-            <h3>Recent Customers</h3>
-            <ul class="recent-list">
-                 {% for customer in recent_customers %}
-                    <li><span>{{ customer.name }}</span> <span>{{ customer.time_ago }}</span></li>
-                 {% else %}
-                    <li class="empty-message">No recent customer activity.</li>
-                 {% endfor %}
-            </ul>
-        </div>
-
-        <div class="recent-card">
             <h3>Recent Transactions</h3>
             <div class="transactions-table-wrapper">
                 <table class="transactions-table">
@@ -373,7 +362,8 @@
                         <tr>
                             <th>ID</th>
                             <th>Date</th>
-                            <th>Customer</th>
+                            {# --- REMOVED Customer Header --- #}
+                            {# <th>Customer</th> #}
                             <th>Total</th>
                             <th>Actions</th>
                         </tr>
@@ -383,18 +373,21 @@
                             <tr>
                                 <td>{{ txn.id }}</td>
                                 <td>{{ txn.date }}</td>
-                                <td>{{ txn.customer_name | default('N/A') }}</td> {# Added default filter #}
+                                {# --- REMOVED Customer Data Cell --- #}
+                                {# <td>{{ txn.customer_name | default('N/A') }}</td> #}
                                 <td>{{ format_ugx(txn.total) }}</td>
                                 <td>
-                                    {# Add links to view/edit if routes exist #}
-                                    <a href="{{ url_for('view_transaction', txn_id=txn.id) }}" class="action-btn" title="View Details"><i class="fas fa-eye"></i></a>
-                                    <a href="{{ url_for('edit_transaction', txn_id=txn.id) }}" class="action-btn" title="Edit Transaction"><i class="fas fa-edit"></i></a>
-                                    {# Ensure view_transaction and edit_transaction routes exist #}
+                                    {# Add links to view/edit if routes exist - THESE MIGHT NEED ADJUSTMENT #}
+                                    {# You might need a specific 'view_transaction_details' route now #}
+                                    <a href="#" class="action-btn" title="View Details"><i class="fas fa-eye"></i></a>
+                                    {# <a href="{{ url_for('view_transaction', txn_id=txn.id) }}" class="action-btn" title="View Details"><i class="fas fa-eye"></i></a> #}
+                                    {# <a href="{{ url_for('edit_transaction', txn_id=txn.id) }}" class="action-btn" title="Edit Transaction"><i class="fas fa-edit"></i></a> #}
                                 </td>
                             </tr>
                          {% else %}
                             <tr class="empty-row">
-                                <td colspan="5">No recent transactions found.</td> {# Updated message #}
+                                {# --- Adjusted colspan --- #}
+                                <td colspan="4">No recent transactions found.</td>
                             </tr>
                          {% endfor %}
                     </tbody>
