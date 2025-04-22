@@ -395,9 +395,10 @@
             </div>
         </div>
     </div>
-{% endblock %}
+{% endblock %} {# Correctly closing content block #}
 
 {% block scripts %}
+    <!-- {{ super() }} {# Include scripts from base - Important if base has JS #} -->
     <!-- Add any JavaScript specific to dashboard.html HERE -->
     <script>
         // Add functionality to the Download Report button
@@ -428,4 +429,5 @@
         }
 
     </script>
-{% endblock %}
+{% endblock %} {# Correctly closing scripts block #}
+

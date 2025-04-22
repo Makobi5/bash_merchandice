@@ -3,42 +3,23 @@
 
 {% block title %}User Management{% endblock %}
 
-{% block styles %}
-{# Add specific styles if needed, e.g., minimum width for actions #}
-<style>
-    /* Ensure action buttons don't wrap too aggressively */
-    .actions-cell {
-        white-space: nowrap;
-        min-width: 120px; /* Adjust as needed */
-    }
-    /* Ensure Bootstrap Icons load if not in base.html */
-    @import url("https://cdn.jsdelivr.net/npm/bootstrap-icons@1.8.1/font/bootstrap-icons.css");
-
-    /* Improve badge visibility if needed */
-    .badge.bg-secondary.text-dark {
-       /* Add custom styles here if default contrast isn't enough */
-       /* Example: background-color: #e9ecef; */
-    }
-</style>
-{% endblock %}
-
-
 {% block content %}
 <div class="container mt-4">
-    <h1 class="mb-4">User Management</h1>
+    <h2 class="mb-3">User Management</h2>
 
-    {# Jinja comment for the non-functional Add User button
+    <!-- Add New User Button -->
     <div class="mb-3">
-        <a href="{{ url_for('add_user') }}" class="btn btn-success">Add New User</a>
+        <a href="{{ url_for('add_user') }}" class="btn btn-success">
+            <i class="bi bi-person-plus-fill"></i> Add New User
+        </a>
     </div>
-    #}
 
     <!-- Display Flashed Messages -->
     {% with messages = get_flashed_messages(with_categories=true) %}
       {% if messages %}
-        <div class="flash-messages-container" style="padding-bottom: 15px;">
+        <div class="flash-messages-container mb-3">
             {% for category, message in messages %}
-            <div class="alert alert-{{ category }} alert-dismissible fade show mb-0" role="alert">
+            <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
                 {{ message }}
                 <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
             </div>
@@ -47,72 +28,149 @@
       {% endif %}
     {% endwith %}
 
-    <div class="card shadow-sm">
-        <div class="card-header">
-            User List
+    <!-- User List Card -->
+    <div class="card shadow">
+        <div class="card-header bg-primary text-white">
+             <h5 class="mb-0">User List <span class="badge bg-light text-dark">{{ users|length }} users</span></h5>
         </div>
         <div class="card-body">
+            {% if users %}
             <div class="table-responsive">
-                {# Added align-middle for vertical centering within cells #}
-                <table class="table table-striped table-hover align-middle">
-                    {# Use table-light for a subtle header background #}
-                    <thead class="table-light">
+                <table class="table table-hover align-middle">
+                    <thead>
                         <tr>
-                            {# Added text-center and width hints #}
-                            <th scope="col" class="text-center" style="width: 5%;">#</th>
-                            <th scope="col" style="width: 15%;">First Name</th>
-                            <th scope="col" style="width: 15%;">Last Name</th>
-                            <th scope="col" style="width: 15%;">Username</th>
-                            <th scope="col">Email</th> {# Allow Email to take more space #}
-                            <th scope="col" class="text-center" style="width: 10%;">Role</th>
-                            {# Added text-end for right alignment #}
-                            <th scope="col" class="text-end" style="width: 15%;">Actions</th>
+                            <th scope="col">#</th>
+                            <th scope="col">First Name</th>
+                            <th scope="col">Last Name</th>
+                            <th scope="col">Username</th>
+                            <th scope="col">Email</th>
+                            <th scope="col">Role</th>
+                            <th scope="col" class="text-center">Actions</th>
                         </tr>
                     </thead>
                     <tbody>
                         {% for user in users %}
                         <tr>
-                            <td class="text-center">{{ loop.index }}</td>
-                            <td>{{ user.first_name | default('N/A') }}</td>
-                            <td>{{ user.last_name | default('N/A') }}</td>
-                            {# Apply text-break if usernames/emails can be very long #}
-                            <td style="word-break: break-word;">{{ user.username | default('N/A') }}</td>
-                            <td style="word-break: break-word;">{{ user.email | default('N/A') }}</td>
+                            <th scope="row">{{ loop.index }}</th>
+                            <td>{{ user.first_name or 'N/A' }}</td>
+                            <td>{{ user.last_name or 'N/A' }}</td>
+                            <td>{{ user.username }}</td>
+                            <td>{{ user.email }}</td>
+                            <td><span class="badge bg-{{ 'warning' if user.role == 'admin' else 'secondary' }}">{{ user.role|capitalize }}</span></td>
                             <td class="text-center">
-                                {# Added text-dark for better contrast on default secondary badge #}
-                                <span class="badge bg-secondary text-dark rounded-pill px-3">{{ user.role | default('N/A') | capitalize }}</span>
-                            </td>
-                            {# Added text-end and actions-cell class #}
-                            <td class="text-end actions-cell">
-                                {# Use links for navigation, buttons for actions triggering JS/forms #}
-                                {# Added icons, margin, and responsive text labels #}
-                                <a href="#" class="btn btn-sm btn-outline-primary disabled me-1" title="Edit User">
-                                    <i class="bi bi-pencil-fill"></i>
-                                    {# Hide text on smaller screens #}
-                                    <span class="d-none d-md-inline">Edit</span>
+                                <a href="{{ url_for('edit_user', user_id=user.id) }}" class="btn btn-sm btn-outline-primary me-1" title="Edit User">
+                                    <i class="bi bi-pencil-square"></i> Edit
                                 </a>
-                                <a href="#" class="btn btn-sm btn-outline-danger disabled" title="Delete User">
-                                    <i class="bi bi-trash-fill"></i>
-                                     {# Hide text on smaller screens #}
-                                    <span class="d-none d-md-inline">Delete</span>
-                                </a>
+                                <!-- Delete Button - Triggers Modal -->
+                                <button type="button" class="btn btn-sm btn-outline-danger btn-delete-initiate"
+                                        data-bs-toggle="modal"
+                                        data-bs-target="#deleteUserModal"
+                                        data-user-id="{{ user.id }}"
+                                        data-user-fullname="{{ user.first_name or '' }} {{ user.last_name or '' }}"
+                                        data-user-username="{{ user.username }}"
+                                        data-user-email="{{ user.email }}"
+                                        data-user-role="{{ user.role|capitalize }}"
+                                        title="Delete User">
+                                    <i class="bi bi-trash"></i> Delete
+                                </button>
+                                <!-- REMOVED INLINE CONFIRMATION DIV -->
                             </td>
-                        </tr>
-                        {% else %}
-                        <tr>
-                            {# Adjusted colspan #}
-                            <td colspan="7" class="text-center text-muted fst-italic py-3">No users found in the system.</td>
                         </tr>
                         {% endfor %}
                     </tbody>
                 </table>
             </div>
-        </div>
+            {% else %}
+            <div class="alert alert-info" role="alert">
+                No users found in the system.
+            </div>
+            {% endif %}
+        </div> <!-- End card-body -->
+    </div> <!-- End card -->
+
+</div> <!-- End container -->
+
+<!-- Delete Confirmation Modal -->
+<div class="modal fade" id="deleteUserModal" tabindex="-1" aria-labelledby="deleteUserModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header bg-danger text-white">
+        <h5 class="modal-title" id="deleteUserModalLabel"><i class="bi bi-exclamation-triangle-fill"></i> Confirm Deletion</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <p><strong>This action cannot be undone!</strong></p>
+        <p>Are you sure you want to permanently delete the following user?</p>
+        <ul class="list-unstyled mb-0">
+            <li><strong>Name:</strong> <span id="modalUserName"></span></li>
+            <li><strong>Username:</strong> <span id="modalUserUsername"></span></li>
+            <li><strong>Email:</strong> <span id="modalUserEmail"></span></li>
+            <li><strong>Role:</strong> <span id="modalUserRole"></span></li>
+        </ul>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+            <i class="bi bi-x-circle"></i> Cancel
+        </button>
+        <!-- Form for actual deletion -->
+        <form id="deleteUserForm" method="POST" action="" class="d-inline"> {# Action will be set by JS #}
+            <button type="submit" class="btn btn-danger">
+                <i class="bi bi-trash-fill"></i> Delete Permanently
+            </button>
+        </form>
+      </div>
     </div>
+  </div>
 </div>
+<!-- End Delete Confirmation Modal -->
+
 {% endblock %}
 
 {% block scripts %}
-{# Ensure Bootstrap JS is included if not already in base.html #}
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+{{ super() }} {# Include scripts from base.html if any #}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const deleteUserModal = document.getElementById('deleteUserModal');
+    const modalUserName = document.getElementById('modalUserName');
+    const modalUserUsername = document.getElementById('modalUserUsername');
+    const modalUserEmail = document.getElementById('modalUserEmail');
+    const modalUserRole = document.getElementById('modalUserRole');
+    const deleteUserForm = document.getElementById('deleteUserForm');
+
+    // Add event listener for when the modal is about to be shown
+    deleteUserModal.addEventListener('show.bs.modal', function (event) {
+        // Button that triggered the modal
+        const button = event.relatedTarget;
+
+        // Extract info from data-* attributes
+        const userId = button.getAttribute('data-user-id');
+        const userFullName = button.getAttribute('data-user-fullname').trim() || 'N/A'; // Handle empty names
+        const userUsername = button.getAttribute('data-user-username');
+        const userEmail = button.getAttribute('data-user-email');
+        const userRole = button.getAttribute('data-user-role');
+
+        // Construct the deletion URL
+        const deleteUrl = "{{ url_for('delete_user', user_id=0) }}".replace('0', userId); // Construct URL dynamically
+
+        // Update the modal's content
+        modalUserName.textContent = userFullName;
+        modalUserUsername.textContent = userUsername;
+        modalUserEmail.textContent = userEmail;
+        modalUserRole.textContent = userRole;
+
+        // Update the form's action attribute
+        deleteUserForm.action = deleteUrl;
+    });
+
+    // Optional: Clear modal content when hidden to prevent flash of old data
+    deleteUserModal.addEventListener('hidden.bs.modal', function () {
+         modalUserName.textContent = '';
+         modalUserUsername.textContent = '';
+         modalUserEmail.textContent = '';
+         modalUserRole.textContent = '';
+         deleteUserForm.action = ''; // Clear action
+    });
+
+});
+</script>
 {% endblock %}

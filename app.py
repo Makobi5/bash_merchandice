@@ -1,5 +1,3 @@
-# --- START OF FILE app.py ---
-
 from flask import Flask, render_template, jsonify, request, send_file, session, redirect, url_for, flash
 import os
 import io
@@ -673,6 +671,427 @@ def generate_report_api(period):
         import traceback
         traceback.print_exc()
         return jsonify({'error': f'Failed to generate report: {str(e)}'}), 500
+    
+# --- MODIFIED PROFILE ROUTE ---
+@app.route('/profile', methods=['GET', 'POST'])
+@login_required
+def profile():
+    if not check_supabase():
+        flash("Database connection failed.", "danger")
+        return redirect(url_for('dashboard'))
+
+    current_user_id = session.get('user', {}).get('id')
+    if not current_user_id:
+        flash("Authentication error.", "danger")
+        return redirect(url_for('login'))
+
+    if request.method == 'POST':
+        # Handle profile update
+        first_name = request.form.get('first_name', '').strip()
+        last_name = request.form.get('last_name', '').strip()
+        username = request.form.get('username', '').strip().lower()  # Normalize username to lowercase
+        
+        # Basic validation
+        if not first_name or not last_name or not username:
+            flash("All fields are required.", "danger")
+            return redirect(url_for('profile'))
+
+        if not re.match(r'^[a-zA-Z0-9_]+$', username):
+            flash("Username can only contain letters, numbers and underscores.", "danger")
+            return redirect(url_for('profile'))
+
+        if len(username) < 3 or len(username) > 20:
+            flash("Username must be between 3 and 20 characters.", "danger")
+            return redirect(url_for('profile'))
+
+        try:
+            # First check if username is already taken by another user
+            check_response = supabase.table('users') \
+                .select('id') \
+                .eq('username', username) \
+                .neq('auth_user_id', current_user_id) \
+                .execute()
+
+            if check_response.data and len(check_response.data) > 0:
+                flash("This username is already taken. Please choose another.", "danger")
+                return redirect(url_for('profile'))
+
+            # Update user profile in public.users table
+            update_data = {
+                'first_name': first_name,
+                'last_name': last_name,
+                'username': username,
+                'updated_at': datetime.datetime.utcnow().isoformat()
+            }
+            
+            response = supabase.table('users') \
+                .update(update_data) \
+                .eq('auth_user_id', current_user_id) \
+                .execute()
+
+            if response.data and len(response.data) > 0:
+                # Update session with new data
+                session['user']['first_name'] = first_name
+                session['user']['last_name'] = last_name
+                session.modified = True
+                flash("Profile updated successfully!", "success")
+            else:
+                flash("Failed to update profile.", "warning")
+
+        except Exception as e:
+            print(f"Error updating profile: {e}")
+            flash("An error occurred while updating your profile.", "danger")
+
+        return redirect(url_for('profile'))
+
+    else:
+        # GET request - show profile
+        try:
+            # First check if user exists to avoid 204 error
+            count_response = supabase.table('users') \
+                .select('*', count='exact') \
+                .eq('auth_user_id', current_user_id) \
+                .execute()
+                
+            user_count = count_response.count if hasattr(count_response, 'count') else 0
+            
+            if user_count == 0:
+                flash("User profile not found.", "danger")
+                return redirect(url_for('dashboard'))
+            
+            # MODIFIED: Remove 'created_at' from the SELECT statement
+            response = supabase.table('users') \
+                .select('id, email, username, first_name, last_name, role') \
+                .eq('auth_user_id', current_user_id) \
+                .execute()
+            
+            if response.data and len(response.data) > 0:
+                user_data = response.data[0]
+                # Add a default or placeholder value for created_at_formatted
+                user_data['created_at_formatted'] = "Account creation date not available"
+                return render_template('profile.html', profile=user_data)
+            else:
+                flash("User profile not found.", "danger")
+                return redirect(url_for('dashboard'))
+
+        except Exception as e:
+            print(f"Error fetching profile: {e}")
+            flash("Could not load profile data.", "danger")
+            return redirect(url_for('dashboard'))
+@app.route('/users/add', methods=['GET', 'POST'])
+@login_required
+def add_user():
+    # Check DB connection
+    if not check_supabase():
+        flash("Database connection failed.", "danger")
+        return redirect(url_for('users'))
+    
+    # Authorization Check - Admin only
+    current_user_session = session.get('user')
+    if not current_user_session or 'id' not in current_user_session:
+        flash("Authentication error.", "danger")
+        return redirect(url_for('login'))
+    
+    auth_user_id = current_user_session.get('id')
+    user_is_admin = False
+    try:
+        response = supabase.table('users').select('role').eq('auth_user_id', auth_user_id).maybe_single().execute()
+        if response.data and response.data.get('role') == 'admin':
+            user_is_admin = True
+    except Exception as e:
+        print(f"ERROR: Could not perform role check query for auth_id {auth_user_id}: {e}")
+        user_is_admin = False
+    
+    if not user_is_admin:
+        flash("You do not have permission to add users.", "warning")
+        return redirect(url_for('dashboard'))
+    
+    # Form processing
+    if request.method == 'POST':
+        email = request.form.get('email')
+        password = request.form.get('password')
+        confirm_password = request.form.get('confirm_password')
+        first_name = request.form.get('first_name', '').strip()
+        last_name = request.form.get('last_name', '').strip()
+        username = request.form.get('username', '').strip().lower()
+        role = request.form.get('role', 'user')  # Default to 'user' if not specified
+        
+        # Validation
+        error = None
+        if not email or not password or not confirm_password or not first_name or not last_name or not username:
+            error = "All fields are required."
+        elif not re.match(r"^\S+@\S+\.\S+$", email):
+            error = "Invalid email format."
+        elif len(password) < 8:
+            error = "Password must be at least 8 characters."
+        elif password != confirm_password:
+            error = "Passwords do not match."
+        elif not re.match(r'^[a-zA-Z0-9_]+$', username):
+            error = "Username can only contain letters, numbers, and underscores."
+        elif len(username) < 3 or len(username) > 20:
+            error = "Username must be between 3 and 20 characters."
+        elif role not in ['user', 'admin']:
+            error = "Invalid role selected."
+        
+        if error:
+            flash(error, "danger")
+            return render_template('add_user.html')
+        
+        try:
+            # Check if email or username already exists
+            email_check = supabase.table('users').select('id', count='exact').eq('email', email).execute()
+            if email_check.count and email_check.count > 0:
+                flash("Email is already registered.", "warning")
+                return render_template('add_user.html')
+            
+            username_check = supabase.table('users').select('id', count='exact').eq('username', username).execute()
+            if username_check.count and username_check.count > 0:
+                flash("Username is already taken.", "warning")
+                return render_template('add_user.html')
+            
+            # Create user in Supabase Auth
+            auth_response = supabase.auth.admin.create_user({
+                "email": email,
+                "password": password,
+                "email_confirm": True,  # Auto-confirm email
+                "user_metadata": {
+                    "role": role,
+                    "first_name": first_name,
+                    "last_name": last_name
+                }
+            })
+            
+            if not auth_response.user or not auth_response.user.id:
+                flash("Failed to create user account.", "danger")
+                return render_template('add_user.html')
+            
+            # Add user to public.users table
+            user_profile_data = {
+                'auth_user_id': str(auth_response.user.id),
+                'email': email,
+                'username': username,
+                'role': role,
+                'first_name': first_name,
+                'last_name': last_name,
+                'created_at': datetime.datetime.utcnow().isoformat()
+            }
+            
+            insert_response = supabase.table('users').insert(user_profile_data).execute()
+            
+            if insert_response.data and len(insert_response.data) > 0:
+                flash(f"User '{first_name} {last_name}' created successfully!", "success")
+                return redirect(url_for('users'))
+            else:
+                # If user table insert fails, we should ideally delete the auth user too
+                flash("User created but profile setup failed. Please check the system.", "warning")
+                return redirect(url_for('users'))
+        
+        except Exception as e:
+            print(f"Error creating user: {e}")
+            flash(f"An error occurred while creating the user: {str(e)}", "danger")
+            return render_template('add_user.html')
+    
+    # GET request - show the form
+    return render_template('add_user.html')
+
+# --- EDIT USER ROUTE ---
+@app.route('/users/edit/<int:user_id>', methods=['GET', 'POST'])
+@login_required
+def edit_user(user_id):
+    # Check DB connection
+    if not check_supabase():
+        flash("Database connection failed.", "danger")
+        return redirect(url_for('users'))
+    
+    # Authorization Check - Admin only
+    current_user_session = session.get('user')
+    if not current_user_session or 'id' not in current_user_session:
+        flash("Authentication error.", "danger")
+        return redirect(url_for('login'))
+    
+    auth_user_id = current_user_session.get('id')
+    user_is_admin = False
+    try:
+        response = supabase.table('users').select('role').eq('auth_user_id', auth_user_id).maybe_single().execute()
+        if response.data and response.data.get('role') == 'admin':
+            user_is_admin = True
+    except Exception as e:
+        print(f"ERROR: Could not perform role check query for auth_id {auth_user_id}: {e}")
+        user_is_admin = False
+    
+    if not user_is_admin:
+        flash("You do not have permission to edit users.", "warning")
+        return redirect(url_for('dashboard'))
+    
+    # Get user data
+    try:
+        user_response = supabase.table('users').select('*').eq('id', user_id).maybe_single().execute()
+        if not user_response.data:
+            flash("User not found.", "danger")
+            return redirect(url_for('users'))
+        
+        user_data = user_response.data
+    except Exception as e:
+        print(f"Error fetching user data: {e}")
+        flash("Could not load user data.", "danger")
+        return redirect(url_for('users'))
+    
+    # Form processing
+    if request.method == 'POST':
+        email = request.form.get('email')
+        password = request.form.get('password')  # Optional, could be empty
+        confirm_password = request.form.get('confirm_password')
+        first_name = request.form.get('first_name', '').strip()
+        last_name = request.form.get('last_name', '').strip()
+        username = request.form.get('username', '').strip().lower()
+        role = request.form.get('role', 'user')
+        
+        # Validation
+        error = None
+        if not email or not first_name or not last_name or not username:
+            error = "Name, email, and username fields are required."
+        elif not re.match(r"^\S+@\S+\.\S+$", email):
+            error = "Invalid email format."
+        elif not re.match(r'^[a-zA-Z0-9_]+$', username):
+            error = "Username can only contain letters, numbers, and underscores."
+        elif len(username) < 3 or len(username) > 20:
+            error = "Username must be between 3 and 20 characters."
+        elif role not in ['user', 'admin']:
+            error = "Invalid role selected."
+        elif password and len(password) < 8:
+            error = "Password must be at least 8 characters."
+        elif password and password != confirm_password:
+            error = "Passwords do not match."
+        
+        # Check for email/username uniqueness (excluding current user)
+        if not error:
+            try:
+                email_check = supabase.table('users').select('id', count='exact').eq('email', email).neq('id', user_id).execute()
+                if email_check.count and email_check.count > 0:
+                    error = "Email is already used by another user."
+                
+                username_check = supabase.table('users').select('id', count='exact').eq('username', username).neq('id', user_id).execute()
+                if username_check.count and username_check.count > 0:
+                    error = "Username is already taken by another user."
+            except Exception as e:
+                print(f"Error checking uniqueness: {e}")
+                error = "Could not validate email/username uniqueness."
+        
+        if error:
+            flash(error, "danger")
+            return render_template('edit_user.html', user=user_data)
+        
+        try:
+            # Update user profile in public.users table
+            update_data = {
+                'email': email,
+                'username': username,
+                'role': role,
+                'first_name': first_name,
+                'last_name': last_name,
+                'updated_at': datetime.datetime.utcnow().isoformat()
+            }
+            
+            update_response = supabase.table('users').update(update_data).eq('id', user_id).execute()
+            
+            if not update_response.data or len(update_response.data) == 0:
+                flash("Failed to update user profile.", "danger")
+                return render_template('edit_user.html', user=user_data)
+            
+            # If password was provided, update it in Auth
+            if password:
+                try:
+                    # Get auth_user_id from the users table
+                    auth_id = user_data.get('auth_user_id')
+                    if not auth_id:
+                        flash("User updated, but could not update password (missing auth ID).", "warning")
+                    else:
+                        # Update password in Auth
+                        supabase.auth.admin.update_user_by_id(
+                            auth_id,
+                            {"password": password}
+                        )
+                except Exception as pw_err:
+                    print(f"Error updating password: {pw_err}")
+                    flash("User profile updated, but password change failed.", "warning")
+                    return redirect(url_for('users'))
+            
+            flash(f"User '{first_name} {last_name}' updated successfully!", "success")
+            return redirect(url_for('users'))
+            
+        except Exception as e:
+            print(f"Error updating user: {e}")
+            flash(f"An error occurred while updating the user: {str(e)}", "danger")
+            return render_template('edit_user.html', user=user_data)
+    
+    # GET request - show the form with user data
+    return render_template('edit_user.html', user=user_data)     
+
+
+# --- DELETE USER ROUTE ---
+@app.route('/users/delete/<int:user_id>', methods=['POST'])
+@login_required
+def delete_user(user_id):
+    # Check DB connection
+    if not check_supabase():
+        flash("Database connection failed.", "danger")
+        return redirect(url_for('users'))
+    
+    # Authorization Check - Admin only
+    current_user_session = session.get('user')
+    if not current_user_session or 'id' not in current_user_session:
+        flash("Authentication error.", "danger")
+        return redirect(url_for('login'))
+    
+    auth_user_id = current_user_session.get('id')
+    user_is_admin = False
+    try:
+        response = supabase.table('users').select('role').eq('auth_user_id', auth_user_id).maybe_single().execute()
+        if response.data and response.data.get('role') == 'admin':
+            user_is_admin = True
+    except Exception as e:
+        print(f"ERROR: Could not perform role check query for auth_id {auth_user_id}: {e}")
+        user_is_admin = False
+    
+    if not user_is_admin:
+        flash("You do not have permission to delete users.", "warning")
+        return redirect(url_for('dashboard'))
+    
+    # Get user to be deleted
+    try:
+        user_response = supabase.table('users').select('*').eq('id', user_id).maybe_single().execute()
+        if not user_response.data:
+            flash("User not found.", "danger")
+            return redirect(url_for('users'))
+        
+        user_data = user_response.data
+        
+        # Check if trying to delete self
+        if user_data.get('auth_user_id') == auth_user_id:
+            flash("You cannot delete your own account.", "warning")
+            return redirect(url_for('users'))
+        
+        # Delete from public.users table first
+        delete_response = supabase.table('users').delete().eq('id', user_id).execute()
+        
+        # If successful and we have auth_user_id, delete from Auth as well
+        if delete_response.data and len(delete_response.data) > 0 and user_data.get('auth_user_id'):
+            try:
+                # Delete from Auth
+                supabase.auth.admin.delete_user(user_data.get('auth_user_id'))
+                flash(f"User '{user_data.get('first_name')} {user_data.get('last_name')}' deleted successfully.", "success")
+            except Exception as auth_err:
+                print(f"User deleted from database but error removing from Auth: {auth_err}")
+                flash("User removed from system but Auth cleanup may be incomplete.", "warning")
+        else:
+            flash("User deleted successfully.", "success")
+        
+        return redirect(url_for('users'))
+        
+    except Exception as e:
+        print(f"Error deleting user: {e}")
+        flash("An error occurred while deleting the user.", "danger")
+        return redirect(url_for('users'))           
 
 # --- REMOVED DUPLICATE format_ugx definition and incorrect return statement ---
 

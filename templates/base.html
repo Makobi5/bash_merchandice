@@ -17,13 +17,12 @@
             </div>
             {% if user %} {# Opens if user for header #}
             <div class="user-info">
-                 {# --- START: Modified User Display --- #}
-                 {# Display First Name if available, otherwise Email #}
-                 <span>
-                     Welcome, {{ user.get('first_name') | default(user.get('email', 'User')) }}
-                     ({{ user.get('role', 'role') | capitalize }})
-                 </span>
-                 {# --- END: Modified User Display --- #}
+                <a href="{{ url_for('profile') }}" style="text-decoration: none; color: inherit;">
+                    <span>
+                        Welcome, {{ user.get('first_name') | default(user.get('email', 'User')) }}
+                        ({{ user.get('role', 'role') | capitalize }})
+                    </span>
+                </a>
                 <a href="{{ url_for('logout') }}" class="logout-btn">Logout</a>
             </div>
             {% endif %} {# Closes if user for header #}
@@ -40,7 +39,7 @@
 
             {# --- Moved Reports link outside of admin check --- #}
             <li><a href="{{ url_for('reports') }}" class="{{ 'active' if request.endpoint == 'reports' else '' }}">Reports</a></li>
-
+            <li><a href="{{ url_for('profile') }}" class="{{ 'active' if request.endpoint == 'profile' else '' }}">My Profile</a></li>
             {# --- START: Conditional Admin Links (Employees) --- #}
             {% if user.get('role') == 'admin' %} {# Opens if admin for Employees #}
             <li><a href="{{ url_for('employees') }}" class="{{ 'active' if request.endpoint == 'employees' else '' }}">Employees</a></li>
