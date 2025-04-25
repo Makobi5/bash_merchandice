@@ -23,36 +23,63 @@ app.config['SECRET_KEY'] = os.getenv('FLASK_SECRET_KEY')
 # Initialize Supabase client with options
 supabase_url = os.getenv('SUPABASE_URL')
 supabase_key = os.getenv('SUPABASE_KEY')
+supabase_service_key = os.getenv('SUPABASE_SERVICE_KEY') # SERVICE ROLE key
 
 # --- Supabase Client Initialization ---
-supabase = None # Initialize as None
+supabase_url = os.getenv('SUPABASE_URL')
+supabase_key = os.getenv('SUPABASE_KEY') # ANON key
+supabase_service_key = os.getenv('SUPABASE_SERVICE_KEY') # SERVICE ROLE key
+
+# Initialize REGULAR client (using ANON key - for reads, non-admin writes)
+supabase: Client | None = None
 if not supabase_url or not supabase_key:
-    print("Error: SUPABASE_URL or SUPABASE_KEY not found in environment variables.")
+    print("Error: SUPABASE_URL or SUPABASE_KEY (anon) not found in environment variables.")
 else:
     try:
-        supabase: Client = create_client(
+        supabase = create_client(
             supabase_url,
             supabase_key,
             options=ClientOptions(
                 postgrest_client_timeout=30,
-                schema="public"
+                schema="public" # Ensure schema is set if needed
             )
         )
-        print("Supabase client initialized successfully.")
+        print("Supabase client (anon) initialized successfully.")
     except Exception as e:
-        print(f"Error initializing Supabase client: {e}")
+        print(f"Error initializing Supabase client (anon): {e}")
         supabase = None # Ensure it's None if initialization fails
 
-# Helper function to check Supabase connection
+# Initialize ADMIN client (using SERVICE ROLE key - for admin operations)
+supabase_admin: Client | None = None
+if not supabase_url or not supabase_service_key:
+    print("WARNING: SUPABASE_SERVICE_KEY not found. Admin operations (like Auth user deletion/creation) will fail.")
+else:
+    try:
+        supabase_admin = create_client(
+            supabase_url,
+            supabase_service_key,
+            options=ClientOptions(
+                postgrest_client_timeout=30,
+                schema="public" # Ensure schema is set if needed
+            )
+        )
+        print("Supabase ADMIN client (service) initialized successfully.")
+    except Exception as e:
+        print(f"Error initializing Supabase ADMIN client (service): {e}")
+        supabase_admin = None # Ensure it's None if initialization fails
+
+# Helper functions to check Supabase connections
 def check_supabase():
     if supabase is None:
-        # Avoid flashing message here if it's called frequently before request context is ready
-        # Instead, just return False and handle flash in routes if needed
-        # flash("Application error: Database connection failed. Please contact support.", "danger")
-        print("ERROR check_supabase: Supabase client is None.")
+        print("ERROR check_supabase: Supabase client (anon) is None.")
         return False
     return True
 
+def check_supabase_admin():
+    if supabase_admin is None:
+        print("ERROR check_supabase_admin: Supabase ADMIN client (service) is None.")
+        return False
+    return True
 # --- CORRECTED CONTEXT PROCESSOR ---
 @app.context_processor
 def inject_globals():
@@ -672,111 +699,195 @@ def generate_report_api(period):
         traceback.print_exc()
         return jsonify({'error': f'Failed to generate report: {str(e)}'}), 500
     
-# --- MODIFIED PROFILE ROUTE ---
+# --- COMPLETE PROFILE ROUTE ---
 @app.route('/profile', methods=['GET', 'POST'])
 @login_required
 def profile():
+    # Use the REGULAR supabase client for most profile operations
     if not check_supabase():
         flash("Database connection failed.", "danger")
         return redirect(url_for('dashboard'))
 
-    current_user_id = session.get('user', {}).get('id')
-    if not current_user_id:
-        flash("Authentication error.", "danger")
+    # Get the AUTH user ID from the session (UUID string)
+    current_auth_user_id = session.get('user', {}).get('id')
+    if not current_auth_user_id:
+        flash("Authentication error: Could not identify current user.", "danger")
         return redirect(url_for('login'))
 
     if request.method == 'POST':
-        # Handle profile update
+        # --- Get Profile Form Data ---
         first_name = request.form.get('first_name', '').strip()
         last_name = request.form.get('last_name', '').strip()
-        username = request.form.get('username', '').strip().lower()  # Normalize username to lowercase
-        
-        # Basic validation
+        username = request.form.get('username', '').strip().lower() # Normalize username
+
+        # --- Get Password Form Data ---
+        new_password = request.form.get('new_password') # Don't strip passwords
+        confirm_new_password = request.form.get('confirm_new_password')
+
+        # --- Profile Data Validation ---
+        profile_error = None
         if not first_name or not last_name or not username:
-            flash("All fields are required.", "danger")
+            profile_error = "First Name, Last Name, and Username are required."
+        elif not re.match(r'^[a-zA-Z0-9_]+$', username):
+            profile_error = "Username can only contain letters, numbers and underscores."
+        elif len(username) < 3 or len(username) > 20:
+            profile_error = "Username must be between 3 and 20 characters."
+
+        if profile_error:
+            flash(profile_error, "danger")
+            # Redirect back to profile page to show the error and current data
             return redirect(url_for('profile'))
 
-        if not re.match(r'^[a-zA-Z0-9_]+$', username):
-            flash("Username can only contain letters, numbers and underscores.", "danger")
-            return redirect(url_for('profile'))
+        # --- Flag to track if any update was successful ---
+        update_occurred = False
 
-        if len(username) < 3 or len(username) > 20:
-            flash("Username must be between 3 and 20 characters.", "danger")
-            return redirect(url_for('profile'))
-
+        # --- Update Profile Data (Names/Username) ---
         try:
-            # First check if username is already taken by another user
+            # Check if username is taken by ANOTHER user first
             check_response = supabase.table('users') \
-                .select('id') \
+                .select('id', count='exact') \
                 .eq('username', username) \
-                .neq('auth_user_id', current_user_id) \
+                .neq('auth_user_id', current_auth_user_id) \
                 .execute()
 
-            if check_response.data and len(check_response.data) > 0:
+            if check_response.count and check_response.count > 0:
                 flash("This username is already taken. Please choose another.", "danger")
-                return redirect(url_for('profile'))
+                return redirect(url_for('profile')) # Stop processing if username taken
 
-            # Update user profile in public.users table
+            # Prepare update data dictionary
             update_data = {
                 'first_name': first_name,
                 'last_name': last_name,
                 'username': username,
+                # Ensure 'updated_at' column exists in your 'users' table schema
+                # If it exists and you want the DB to handle it via default/trigger, remove this line.
+                # If you want the app to set it, keep it and make sure the column exists.
                 'updated_at': datetime.datetime.utcnow().isoformat()
             }
-            
+
+            # Perform the update on the public.users table
             response = supabase.table('users') \
                 .update(update_data) \
-                .eq('auth_user_id', current_user_id) \
+                .eq('auth_user_id', current_auth_user_id) \
                 .execute()
 
+            # Check if the update operation returned data (indicating success)
             if response.data and len(response.data) > 0:
-                # Update session with new data
+                # Update session with new data if necessary
                 session['user']['first_name'] = first_name
                 session['user']['last_name'] = last_name
+                # Note: username is not typically stored directly in session user dict,
+                # but update names if you use them in the header/nav.
                 session.modified = True
-                flash("Profile updated successfully!", "success")
+                flash("Profile details updated successfully!", "success")
+                update_occurred = True # Mark that an update happened
             else:
-                flash("Failed to update profile.", "warning")
+                # This might occur if the auth_user_id wasn't found in the users table
+                # or if the data submitted was identical to existing data (some DBs might not report an update)
+                print(f"Profile update for {current_auth_user_id} returned no data. Response: {response}")
+                # Optionally flash a different message if needed, but often no message is fine if data was identical.
+                # flash("No changes detected in profile details.", "info")
 
         except Exception as e:
-            print(f"Error updating profile: {e}")
-            flash("An error occurred while updating your profile.", "danger")
+            print(f"Error updating profile details for {current_auth_user_id}: {e}")
+            flash("An error occurred while updating profile details.", "danger")
+            # Decide whether to redirect immediately or allow password attempt
+            # return redirect(url_for('profile')) # Option to stop here
 
+        # --- Handle Password Change (Only if requested) ---
+        password_update_attempted = False
+        if new_password: # Check if a new password was actually entered
+            password_update_attempted = True
+            password_error = None
+            if len(new_password) < 8:
+                password_error = "New password must be at least 8 characters long."
+            elif new_password != confirm_new_password:
+                password_error = "New passwords do not match."
+
+            if password_error:
+                flash(password_error, "danger")
+            else:
+                # Password validation passed, attempt to update password using Supabase Auth
+                access_token = session.get('access_token') # Get token from Flask session
+                if not access_token:
+                    flash("Critical Error: Authentication token missing. Please log in again.", "danger")
+                    return redirect(url_for('login')) # Redirect if token is missing
+
+                try:
+                    print(f"Attempting password update for user via token...")
+
+                    # SET THE SESSION ON THE CLIENT before calling auth.update_user
+                    supabase.auth.set_session(access_token=access_token, refresh_token=session.get('refresh_token'))
+
+                    # Now call update_user - the client is authenticated
+                    auth_update_resp = supabase.auth.update_user(
+                        attributes={'password': new_password}
+                    )
+
+                    # Check response - update_user returns a UserResponse object on success
+                    if auth_update_resp and auth_update_resp.user:
+                         flash("Password updated successfully!", "success")
+                         update_occurred = True # Mark that an update happened
+                    else:
+                         # This might indicate an unexpected issue from Supabase
+                         print(f"Password update response for user {session.get('user',{}).get('email','UNKNOWN')} unexpected: {auth_update_resp}")
+                         flash("Password update attempted but may have failed. Check server logs.", "warning")
+
+                except Exception as auth_e:
+                    error_message = str(auth_e)
+                    print(f"Error updating password for user {session.get('user',{}).get('email','UNKNOWN')}: {error_message}")
+                    # Check for specific known errors
+                    if 'Password should be stronger' in error_message or 'password is too weak' in error_message:
+                         flash("Password update failed: The new password does not meet the strength requirements.", "danger")
+                    elif 'Auth session missing!' in error_message: # Catch the specific error if library throws it
+                         flash("Authentication session error during password update. Please try logging in again.", "danger")
+                    else:
+                         # General error message
+                         flash("An error occurred while updating password.", "danger")
+                finally:
+                    # IMPORTANT: Clear the session context from the client instance after use
+                    # to avoid potential token leakage or using stale tokens on subsequent requests.
+                    supabase.auth.sign_out() # Effectively clears the session from the client object
+
+
+        # If only password was attempted and failed, don't flash the profile success message again
+        if not update_occurred and password_update_attempted:
+            # If profile update didn't happen successfully AND password update was attempted (and presumably failed based on logic above)
+            pass # Error message for password failure was already flashed
+        elif not update_occurred and not password_update_attempted:
+             # No profile changes detected and no password change requested
+             flash("No changes were submitted.", "info")
+
+
+        # Redirect back to profile page after all updates/attempts
         return redirect(url_for('profile'))
 
     else:
-        # GET request - show profile
+        # --- GET request - Show profile page ---
         try:
-            # First check if user exists to avoid 204 error
-            count_response = supabase.table('users') \
-                .select('*', count='exact') \
-                .eq('auth_user_id', current_user_id) \
-                .execute()
-                
-            user_count = count_response.count if hasattr(count_response, 'count') else 0
-            
-            if user_count == 0:
-                flash("User profile not found.", "danger")
-                return redirect(url_for('dashboard'))
-            
-            # MODIFIED: Remove 'created_at' from the SELECT statement
+            # Fetch user data from public.users table using auth_user_id
+            # Ensure you select all columns needed by the template
             response = supabase.table('users') \
                 .select('id, email, username, first_name, last_name, role') \
-                .eq('auth_user_id', current_user_id) \
+                .eq('auth_user_id', current_auth_user_id) \
+                .maybe_single() \
                 .execute()
-            
-            if response.data and len(response.data) > 0:
-                user_data = response.data[0]
-                # Add a default or placeholder value for created_at_formatted
-                user_data['created_at_formatted'] = "Account creation date not available"
+
+            if response.data:
+                user_data = response.data
+                # Add placeholder if created_at isn't fetched/available
+                # You might fetch 'created_at' from DB if you added it, and format it here or with a template filter
+                user_data['created_at_formatted'] = "Account creation date not available" # Placeholder
                 return render_template('profile.html', profile=user_data)
             else:
-                flash("User profile not found.", "danger")
-                return redirect(url_for('dashboard'))
+                # This case indicates inconsistency - user is authenticated but has no profile row.
+                print(f"WARNING: Profile data not found in public.users for authenticated user {current_auth_user_id}")
+                flash("User profile data not found in the database. Please contact support.", "warning")
+                return redirect(url_for('dashboard')) # Redirect to dashboard seems appropriate
 
         except Exception as e:
-            print(f"Error fetching profile: {e}")
-            flash("Could not load profile data.", "danger")
+            print(f"Error fetching profile data for {current_auth_user_id}: {e}")
+            flash("Could not load profile data due to a server error.", "danger")
             return redirect(url_for('dashboard'))
 @app.route('/users/add', methods=['GET', 'POST'])
 @login_required
@@ -850,7 +961,7 @@ def add_user():
                 return render_template('add_user.html')
             
             # Create user in Supabase Auth
-            auth_response = supabase.auth.admin.create_user({
+            auth_response =  supabase_admin.auth.admin.create_user({
                 "email": email,
                 "password": password,
                 "email_confirm": True,  # Auto-confirm email
@@ -1049,7 +1160,7 @@ def delete_user(user_id):
         if delete_response.data and len(delete_response.data) > 0 and user_data.get('auth_user_id'):
             try:
                 # Delete from Auth
-                supabase.auth.admin.delete_user(user_data.get('auth_user_id'))
+                supabase_admin.auth.admin.delete_user(user_data.get('auth_user_id'))
                 flash(f"User '{user_data.get('first_name')} {user_data.get('last_name')}' deleted successfully.", "success")
             except Exception as auth_err:
                 print(f"User deleted from database but error removing from Auth: {auth_err}")

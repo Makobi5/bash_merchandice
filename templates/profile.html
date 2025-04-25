@@ -4,118 +4,42 @@
 
 {% block styles %}
 <style>
+    /* --- Existing styles --- */
     .profile-container {
         max-width: 600px;
         margin: 0 auto;
         padding: 20px;
     }
-    
-    .profile-header {
-        margin-bottom: 30px;
-        text-align: center;
+    .profile-header { margin-bottom: 30px; text-align: center; }
+    .profile-header h1 { margin-bottom: 10px; }
+    .profile-details { background: white; border-radius: 8px; padding: 25px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); }
+    .profile-form .form-group { margin-bottom: 20px; }
+    .profile-form label { display: block; margin-bottom: 8px; font-weight: 500; }
+    .profile-form input { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 1rem; }
+    .profile-form .read-only { background-color: #f8f9fa; color: #6c757d; cursor: not-allowed; }
+    .username-rules { font-size: 0.8rem; color: #6c757d; margin-top: 5px; }
+    .profile-meta { margin-top: 30px; padding-top: 20px; border-top: 1px solid #eee; font-size: 0.9rem; color: #6c757d; }
+    .button-group { display: flex; justify-content: center; gap: 15px; margin-top: 25px; }
+    .btn { padding: 10px 20px; border-radius: 4px; font-size: 1rem; font-weight: 500; cursor: pointer; text-decoration: none; text-align: center; transition: all 0.2s ease; }
+    .btn-primary { background-color: var(--primary, #3498db); color: white; border: none; }
+    .btn-primary:hover { background-color: var(--secondary, #2980b9); transform: translateY(-2px); box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+    .btn-secondary { background-color: #f8f9fa; color: #495057; border: 1px solid #ddd; }
+    .btn-secondary:hover { background-color: #e9ecef; transform: translateY(-2px); box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+
+    /* --- New Styles for Password Section --- */
+    .password-section {
+        margin-top: 30px;
+        padding-top: 20px;
+        border-top: 1px dashed #ccc;
     }
-    
-    .profile-header h1 {
-        margin-bottom: 10px;
+    .password-section h5 {
+        margin-bottom: 15px;
+        color: #555;
     }
-    
-    .profile-details {
-        background: white;
-        border-radius: 8px;
-        padding: 25px;
-        box-shadow: 0 2px 10px rgba(0,0,0,0.05);
-    }
-    
-    .profile-form .form-group {
-        margin-bottom: 20px;
-    }
-    
-    .profile-form label {
-        display: block;
-        margin-bottom: 8px;
-        font-weight: 500;
-    }
-    
-    .profile-form input {
-        width: 100%;
-        padding: 10px;
-        border: 1px solid #ddd;
-        border-radius: 4px;
-        font-size: 1rem;
-    }
-    
-    .profile-form .read-only {
-        background-color: #f8f9fa;
-        color: #6c757d;
-    }
-    
-    .username-rules {
+    .password-rules {
         font-size: 0.8rem;
         color: #6c757d;
         margin-top: 5px;
-    }
-    
-    .btn-save {
-        background-color: var(--primary);
-        color: white;
-        padding: 10px 20px;
-        border: none;
-        border-radius: 4px;
-        cursor: pointer;
-        font-size: 1rem;
-    }
-    
-    .btn-save:hover {
-        background-color: var(--secondary);
-    }
-    
-    .profile-meta {
-        margin-top: 30px;
-        padding-top: 20px;
-        border-top: 1px solid #eee;
-        font-size: 0.9rem;
-        color: #6c757d;
-    }
-    .button-group {
-    display: flex;
-    justify-content: center;
-    gap: 15px;
-    margin-top: 25px;
-}
-
-    .btn {
-        padding: 10px 20px;
-        border-radius: 4px;
-        font-size: 1rem;
-        font-weight: 500;
-        cursor: pointer;
-        text-decoration: none;
-        text-align: center;
-        transition: all 0.2s ease;
-    }
-
-    .btn-primary {
-        background-color: var(--primary, #3498db);
-        color: white;
-        border: none;
-    }
-
-    .btn-primary:hover {
-        background-color: var(--secondary, #2980b9);
-        transform: translateY(-2px);
-        box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-    }
-
-    .btn-secondary {
-        background-color: #f8f9fa;
-        color: #495057;
-        border: 1px solid #ddd;
-    }
-
-    .btn-secondary:hover {
-        background-color: #e9ecef;
-        transform: translateY(-2px);
-        box-shadow: 0 2px 5px rgba(0,0,0,0.1);
     }
 </style>
 {% endblock %}
@@ -126,46 +50,85 @@
         <h1>My Profile</h1>
         <p>Manage your account details</p>
     </div>
-    
+
+    {# --- Include Flash Messages --- #}
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        <div class="flash-messages-container mb-3">
+          {% for category, message in messages %}
+            <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+               {{ message }}
+               <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>
+          {% endfor %}
+        </div>
+      {% endif %}
+    {% endwith %}
+    {# --- End Flash Messages --- #}
+
+
     <div class="profile-details">
         <form class="profile-form" method="POST" action="{{ url_for('profile') }}">
+            {# --- Existing Profile Fields --- #}
             <div class="form-group">
                 <label for="email">Email</label>
                 <input type="email" id="email" value="{{ profile.email }}" class="read-only" readonly>
             </div>
-            
+
             <div class="form-group">
                 <label for="username">Username</label>
-                <input type="text" id="username" name="username" value="{{ profile.username }}" required>
+                <input type="text" id="username" name="username" value="{{ profile.username }}" required minlength="3" maxlength="20" pattern="^[a-zA-Z0-9_]+$">
                 <p class="username-rules">3-20 characters. Letters, numbers and underscores only.</p>
             </div>
-            
+
             <div class="form-group">
                 <label for="first_name">First Name</label>
-                <input type="text" id="first_name" name="first_name" value="{{ profile.first_name }}" required>
+                <input type="text" id="first_name" name="first_name" value="{{ profile.first_name or '' }}" required>
             </div>
-            
+
             <div class="form-group">
                 <label for="last_name">Last Name</label>
-                <input type="text" id="last_name" name="last_name" value="{{ profile.last_name }}" required>
+                <input type="text" id="last_name" name="last_name" value="{{ profile.last_name or '' }}" required>
             </div>
-            
+
             <div class="form-group">
                 <label for="role">Role</label>
-                <input type="text" id="role" value="{{ profile.role }}" class="read-only" readonly>
+                <input type="text" id="role" value="{{ profile.role|capitalize }}" class="read-only" readonly>
             </div>
-            
+
+            {# --- New Password Section --- #}
+            <div class="password-section">
+                <h5>Change Password (Optional)</h5>
+                 <p class="password-rules">Leave fields below blank to keep your current password.</p>
+                <div class="form-group">
+                    <label for="new_password">New Password</label>
+                    <input type="password" id="new_password" name="new_password" minlength="8">
+                     <p class="password-rules">Minimum 8 characters.</p>
+                </div>
+                <div class="form-group">
+                    <label for="confirm_new_password">Confirm New Password</label>
+                    <input type="password" id="confirm_new_password" name="confirm_new_password">
+                </div>
+            </div>
+            {# --- End Password Section --- #}
+
+
             <div class="button-group">
                 <button type="submit" class="btn btn-primary">Save Changes</button>
                 <a href="{{ url_for('dashboard') }}" class="btn btn-secondary">Cancel</a>
             </div>
         </form>
-        
-        {% if profile.created_at_formatted %}
+
         <div class="profile-meta">
-            <p>Member since: {{ profile.created_at_formatted }}</p>
+             {# Optionally fetch and display created_at if you add it to the DB later #}
+             {# Use the placeholder from your app.py if needed #}
+            <p>Member since: {{ profile.created_at_formatted | default('Account creation date not available') }}</p>
         </div>
-        {% endif %}
     </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+{# Add Bootstrap JS if flash messages need dismiss functionality #}
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js" integrity="sha384-C6RzsynM9kWDrMNeT87bh95OGNyZPhcTNXj1NW7RuBCsyN/o0jlpcV8Qyq46cDfL" crossorigin="anonymous"></script>
 {% endblock %}
