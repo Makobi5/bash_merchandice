@@ -939,8 +939,6 @@ def edit_user(user_id):
     # Form processing
     if request.method == 'POST':
         email = request.form.get('email')
-        password = request.form.get('password')  # Optional, could be empty
-        confirm_password = request.form.get('confirm_password')
         first_name = request.form.get('first_name', '').strip()
         last_name = request.form.get('last_name', '').strip()
         username = request.form.get('username', '').strip().lower()
@@ -958,24 +956,16 @@ def edit_user(user_id):
             error = "Username must be between 3 and 20 characters."
         elif role not in ['user', 'admin']:
             error = "Invalid role selected."
-        elif password and len(password) < 8:
-            error = "Password must be at least 8 characters."
-        elif password and password != confirm_password:
-            error = "Passwords do not match."
         
-        # Check for email/username uniqueness (excluding current user)
+        # Check for email uniqueness (excluding current user)
         if not error:
             try:
                 email_check = supabase.table('users').select('id', count='exact').eq('email', email).neq('id', user_id).execute()
                 if email_check.count and email_check.count > 0:
                     error = "Email is already used by another user."
-                
-                username_check = supabase.table('users').select('id', count='exact').eq('username', username).neq('id', user_id).execute()
-                if username_check.count and username_check.count > 0:
-                    error = "Username is already taken by another user."
             except Exception as e:
                 print(f"Error checking uniqueness: {e}")
-                error = "Could not validate email/username uniqueness."
+                error = "Could not validate email uniqueness."
         
         if error:
             flash(error, "danger")
@@ -985,7 +975,6 @@ def edit_user(user_id):
             # Update user profile in public.users table
             update_data = {
                 'email': email,
-                'username': username,
                 'role': role,
                 'first_name': first_name,
                 'last_name': last_name,
@@ -998,24 +987,6 @@ def edit_user(user_id):
                 flash("Failed to update user profile.", "danger")
                 return render_template('edit_user.html', user=user_data)
             
-            # If password was provided, update it in Auth
-            if password:
-                try:
-                    # Get auth_user_id from the users table
-                    auth_id = user_data.get('auth_user_id')
-                    if not auth_id:
-                        flash("User updated, but could not update password (missing auth ID).", "warning")
-                    else:
-                        # Update password in Auth
-                        supabase.auth.admin.update_user_by_id(
-                            auth_id,
-                            {"password": password}
-                        )
-                except Exception as pw_err:
-                    print(f"Error updating password: {pw_err}")
-                    flash("User profile updated, but password change failed.", "warning")
-                    return redirect(url_for('users'))
-            
             flash(f"User '{first_name} {last_name}' updated successfully!", "success")
             return redirect(url_for('users'))
             
@@ -1025,7 +996,7 @@ def edit_user(user_id):
             return render_template('edit_user.html', user=user_data)
     
     # GET request - show the form with user data
-    return render_template('edit_user.html', user=user_data)     
+    return render_template('edit_user.html', user=user_data)   
 
 
 # --- DELETE USER ROUTE ---

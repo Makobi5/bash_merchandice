@@ -1,7 +1,7 @@
 <!-- File: templates/edit_user.html -->
 {% extends 'base.html' %}
 
-{% block title %}Edit User{% endblock %}
+{% block title %}Edit User: {{ user.first_name }} {{ user.last_name }}{% endblock %}
 
 {% block content %}
 <div class="container mt-4">
@@ -30,42 +30,30 @@
                         <div class="row mb-3">
                             <div class="col-md-6">
                                 <label for="first_name" class="form-label">First Name <span class="text-danger">*</span></label>
-                                <input type="text" class="form-control" id="first_name" name="first_name" required value="{{ request.form.first_name or user.first_name or '' }}">
+                                <input type="text" class="form-control" id="first_name" name="first_name" required value="{{ user.first_name or '' }}">
                             </div>
                             <div class="col-md-6">
                                 <label for="last_name" class="form-label">Last Name <span class="text-danger">*</span></label>
-                                <input type="text" class="form-control" id="last_name" name="last_name" required value="{{ request.form.last_name or user.last_name or '' }}">
+                                <input type="text" class="form-control" id="last_name" name="last_name" required value="{{ user.last_name or '' }}">
                             </div>
                         </div>
                         
                         <div class="mb-3">
                             <label for="email" class="form-label">Email Address <span class="text-danger">*</span></label>
-                            <input type="email" class="form-control" id="email" name="email" required value="{{ request.form.email or user.email or '' }}">
+                            <input type="email" class="form-control" id="email" name="email" required value="{{ user.email or '' }}">
                         </div>
                         
                         <div class="mb-3">
-                            <label for="username" class="form-label">Username <span class="text-danger">*</span></label>
-                            <input type="text" class="form-control" id="username" name="username" required value="{{ request.form.username or user.username or '' }}">
-                            <div class="form-text">Username must be 3-20 characters, containing only letters, numbers, and underscores.</div>
-                        </div>
-                        
-                        <div class="row mb-3">
-                            <div class="col-md-6">
-                                <label for="password" class="form-label">New Password</label>
-                                <input type="password" class="form-control" id="password" name="password">
-                                <div class="form-text">Leave blank to keep current password. Minimum 8 characters if changed.</div>
-                            </div>
-                            <div class="col-md-6">
-                                <label for="confirm_password" class="form-label">Confirm New Password</label>
-                                <input type="password" class="form-control" id="confirm_password" name="confirm_password">
-                            </div>
+                            <label for="username" class="form-label">Username</label>
+                            <input type="text" class="form-control" id="username" name="username" value="{{ user.username or '' }}" readonly>
+                            <div class="form-text">Username cannot be changed.</div>
                         </div>
                         
                         <div class="mb-4">
                             <label for="role" class="form-label">User Role <span class="text-danger">*</span></label>
                             <select class="form-select" id="role" name="role" required>
-                                <option value="user" {% if (request.form.role or user.role) == 'user' %}selected{% endif %}>User</option>
-                                <option value="admin" {% if (request.form.role or user.role) == 'admin' %}selected{% endif %}>Administrator</option>
+                                <option value="user" {% if user.role == 'user' %}selected{% endif %}>User</option>
+                                <option value="admin" {% if user.role == 'admin' %}selected{% endif %}>Administrator</option>
                             </select>
                         </div>
                         
@@ -74,7 +62,7 @@
                                 <i class="bi bi-arrow-left"></i> Back to Users
                             </a>
                             <button type="submit" class="btn btn-primary">
-                                <i class="bi bi-save"></i> Save Changes
+                                <i class="bi bi-save-fill"></i> Save Changes
                             </button>
                         </div>
                     </form>

@@ -4,9 +4,19 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}General Merchandise Management{% endblock %}</title>
+
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-T3c6CoIi6uLrA9TneNEoa7RxnatzjcDSCmG1MXxSR1GAsXEV/Dwwykc2MPK8M2HN" crossorigin="anonymous">
+
+    <!-- Bootstrap Icons CSS -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+
+    <!-- Font Awesome (Optional - if still needed elsewhere) -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
-    <!-- Ensure you have a main.css or adjust path as needed -->
+
+    <!-- Your Custom CSS -->
     <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}">
+
     {% block styles %}{% endblock %}
 </head>
 <body>
@@ -33,39 +43,34 @@
     {% if user %} {# Opens if user for nav #}
     <nav class="main-nav">
         <ul>
+            {# Use request.path for more reliable active state detection if needed #}
             <li><a href="{{ url_for('dashboard') }}" class="{{ 'active' if request.endpoint == 'dashboard' else '' }}">Dashboard</a></li>
             <li><a href="{{ url_for('products') }}" class="{{ 'active' if request.endpoint == 'products' else '' }}">Products</a></li>
             <li><a href="{{ url_for('transactions') }}" class="{{ 'active' if request.endpoint == 'transactions' else '' }}">Transactions</a></li>
-
-            {# --- Moved Reports link outside of admin check --- #}
             <li><a href="{{ url_for('reports') }}" class="{{ 'active' if request.endpoint == 'reports' else '' }}">Reports</a></li>
             <li><a href="{{ url_for('profile') }}" class="{{ 'active' if request.endpoint == 'profile' else '' }}">My Profile</a></li>
-            {# --- START: Conditional Admin Links (Employees) --- #}
             {% if user.get('role') == 'admin' %} {# Opens if admin for Employees #}
             <li><a href="{{ url_for('employees') }}" class="{{ 'active' if request.endpoint == 'employees' else '' }}">Employees</a></li>
             {% endif %} {# Closes if admin for Employees #}
-            {# --- END: Conditional Admin Links (Employees) --- #}
-
-            {# --- START: Conditional Admin Links (Users) --- #}
-            {# Check the role stored in the session user dictionary #}
             {% if user.get('role') == 'admin' %} {# Opens if admin for Users #}
             <li><a href="{{ url_for('users') }}" class="{{ 'active' if request.endpoint == 'users' else '' }}">Users</a></li>
             {% endif %} {# Closes if admin for Users #}
-            {# --- END: Conditional Admin Links (Users) --- #}
         </ul>
     </nav>
     {% endif %} {# Closes if user for nav #}
 
-    <main class="main-content">
-        {# Flash Message Handling #}
+    {# Use Bootstrap container for consistent padding/margins #}
+    <main class="container my-4">
+        {# Flash Message Handling - Using Bootstrap Alerts #}
         {% with messages = get_flashed_messages(with_categories=true) %}
           {% if messages %} {# Opens if messages #}
-            {# Add a container for styling if needed #}
-            <div class="flash-messages-container" style="padding: 0 20px;"> {# Example container styling #}
+            <div class="flash-messages-container mb-3"> {# Added mb-3 for spacing #}
               {% for category, message in messages %}
-                {# Use a common class and category-specific class #}
-                {# Ensure your css/main.css has styles for .flash-message and .alert-* #}
-                <div class="flash-message alert-{{ category }}">{{ message }}</div>
+                 {# Use standard Bootstrap alert classes #}
+                <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+                   {{ message }}
+                   <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                </div>
               {% endfor %}
             </div>
           {% endif %} {# Closes if messages #}
@@ -79,8 +84,13 @@
         <p>© {% if now %}{{ now.year }}{% else %}{{ '' }}{% endif %} Bash Merchandise Manager</p> {# Corrected now() call to now.year #}
     </footer>
 
-    <!-- Ensure you have a main.js or adjust path as needed -->
+    <!-- Bootstrap Bundle JS (includes Popper) -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js" integrity="sha384-C6RzsynM9kWDrMNeT87bh95OGNyZPhcTNXj1NW7RuBCsyN/o0jlpcV8Qyq46cDfL" crossorigin="anonymous"></script>
+
+    <!-- Your Custom JS -->
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+
+    {# Block for page-specific scripts - will be loaded AFTER Bootstrap JS #}
     {% block scripts %}{% endblock %}
 </body>
 </html>

@@ -3,43 +3,33 @@
 
 {% block title %}User Management{% endblock %}
 
-{% block content %}
-<div class="container mt-4">
-    <h2 class="mb-3">User Management</h2>
+{# Removed custom styles block, rely on Bootstrap/main.css #}
 
-    <!-- Add New User Button -->
-    <div class="mb-3">
-        <a href="{{ url_for('add_user') }}" class="btn btn-success">
+{% block content %}
+{# Container is now handled by base.html's main tag #}
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2 class="mb-0">User Management</h2>
+        <a href="{{ url_for('add_user') }}" class="btn btn-primary"> {# Changed color to primary #}
             <i class="bi bi-person-plus-fill"></i> Add New User
         </a>
     </div>
 
-    <!-- Display Flashed Messages -->
-    {% with messages = get_flashed_messages(with_categories=true) %}
-      {% if messages %}
-        <div class="flash-messages-container mb-3">
-            {% for category, message in messages %}
-            <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
-                {{ message }}
-                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-            </div>
-            {% endfor %}
-        </div>
-      {% endif %}
-    {% endwith %}
+    <!-- Display Flashed Messages (REMOVED - Handled by base.html) -->
+    {# {% with messages = get_flashed_messages(with_categories=true) %} ... {% endwith %} #}
 
     <!-- User List Card -->
-    <div class="card shadow">
-        <div class="card-header bg-primary text-white">
-             <h5 class="mb-0">User List <span class="badge bg-light text-dark">{{ users|length }} users</span></h5>
+    <div class="card shadow-sm"> {# Use shadow-sm for subtle shadow #}
+        <div class="card-header"> {# Removed bg-primary text-white for default look, adjust if needed #}
+             <h5 class="mb-0">User List <span class="badge bg-secondary">{{ users|length }} users</span></h5> {# Changed badge color #}
         </div>
-        <div class="card-body">
+        <div class="card-body p-0"> {# Removed padding for full-width table #}
             {% if users %}
             <div class="table-responsive">
-                <table class="table table-hover align-middle">
+                {# Added table-striped for better readability #}
+                <table class="table table-hover table-striped align-middle mb-0">
                     <thead>
                         <tr>
-                            <th scope="col">#</th>
+                            <th scope="col" style="width: 5%;">#</th>
                             <th scope="col">First Name</th>
                             <th scope="col">Last Name</th>
                             <th scope="col">Username</th>
@@ -51,15 +41,16 @@
                     <tbody>
                         {% for user in users %}
                         <tr>
-                            <th scope="row">{{ loop.index }}</th>
+                            <th scope="row" class="ps-3">{{ loop.index }}</th> {# Added padding start #}
                             <td>{{ user.first_name or 'N/A' }}</td>
                             <td>{{ user.last_name or 'N/A' }}</td>
                             <td>{{ user.username }}</td>
                             <td>{{ user.email }}</td>
-                            <td><span class="badge bg-{{ 'warning' if user.role == 'admin' else 'secondary' }}">{{ user.role|capitalize }}</span></td>
+                            {# Use text-bg-* for badges in Bootstrap 5.3+ #}
+                            <td><span class="badge text-bg-{{ 'warning' if user.role == 'admin' else 'secondary' }}">{{ user.role|capitalize }}</span></td>
                             <td class="text-center">
                                 <a href="{{ url_for('edit_user', user_id=user.id) }}" class="btn btn-sm btn-outline-primary me-1" title="Edit User">
-                                    <i class="bi bi-pencil-square"></i> Edit
+                                    <i class="bi bi-pencil-square"></i> <span class="d-none d-md-inline">Edit</span> {# Hide text on small screens #}
                                 </a>
                                 <!-- Delete Button - Triggers Modal -->
                                 <button type="button" class="btn btn-sm btn-outline-danger btn-delete-initiate"
@@ -71,9 +62,8 @@
                                         data-user-email="{{ user.email }}"
                                         data-user-role="{{ user.role|capitalize }}"
                                         title="Delete User">
-                                    <i class="bi bi-trash"></i> Delete
+                                    <i class="bi bi-trash"></i> <span class="d-none d-md-inline">Delete</span> {# Hide text on small screens #}
                                 </button>
-                                <!-- REMOVED INLINE CONFIRMATION DIV -->
                             </td>
                         </tr>
                         {% endfor %}
@@ -81,32 +71,38 @@
                 </table>
             </div>
             {% else %}
-            <div class="alert alert-info" role="alert">
+            <div class="alert alert-info m-3" role="alert"> {# Add margin if table is empty #}
                 No users found in the system.
             </div>
             {% endif %}
         </div> <!-- End card-body -->
     </div> <!-- End card -->
 
-</div> <!-- End container -->
-
 <!-- Delete Confirmation Modal -->
 <div class="modal fade" id="deleteUserModal" tabindex="-1" aria-labelledby="deleteUserModalLabel" aria-hidden="true">
-  <div class="modal-dialog">
+  <div class="modal-dialog modal-dialog-centered"> {# Center modal vertically #}
     <div class="modal-content">
       <div class="modal-header bg-danger text-white">
-        <h5 class="modal-title" id="deleteUserModalLabel"><i class="bi bi-exclamation-triangle-fill"></i> Confirm Deletion</h5>
+        <h5 class="modal-title" id="deleteUserModalLabel"><i class="bi bi-exclamation-triangle-fill me-2"></i> Confirm Deletion</h5>
         <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
       <div class="modal-body">
-        <p><strong>This action cannot be undone!</strong></p>
+        <p><strong class="text-danger">This action cannot be undone!</strong></p>
         <p>Are you sure you want to permanently delete the following user?</p>
-        <ul class="list-unstyled mb-0">
-            <li><strong>Name:</strong> <span id="modalUserName"></span></li>
-            <li><strong>Username:</strong> <span id="modalUserUsername"></span></li>
-            <li><strong>Email:</strong> <span id="modalUserEmail"></span></li>
-            <li><strong>Role:</strong> <span id="modalUserRole"></span></li>
-        </ul>
+        {# Use definition list for better semantics #}
+        <dl class="row mb-0">
+            <dt class="col-sm-3">Name:</dt>
+            <dd class="col-sm-9"><span id="modalUserName"></span></dd>
+
+            <dt class="col-sm-3">Username:</dt>
+            <dd class="col-sm-9"><span id="modalUserUsername"></span></dd>
+
+            <dt class="col-sm-3">Email:</dt>
+            <dd class="col-sm-9"><span id="modalUserEmail"></span></dd>
+
+            <dt class="col-sm-3">Role:</dt>
+            <dd class="col-sm-9"><span id="modalUserRole"></span></dd>
+        </dl>
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
@@ -127,50 +123,67 @@
 {% endblock %}
 
 {% block scripts %}
-{{ super() }} {# Include scripts from base.html if any #}
+{# {{ super() }} is only needed if base.html itself has scripts in its block #}
+{# Script block is now loaded AFTER Bootstrap bundle JS in base.html #}
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    const deleteUserModal = document.getElementById('deleteUserModal');
-    const modalUserName = document.getElementById('modalUserName');
-    const modalUserUsername = document.getElementById('modalUserUsername');
-    const modalUserEmail = document.getElementById('modalUserEmail');
-    const modalUserRole = document.getElementById('modalUserRole');
-    const deleteUserForm = document.getElementById('deleteUserForm');
+    const deleteUserModalElement = document.getElementById('deleteUserModal');
 
-    // Add event listener for when the modal is about to be shown
-    deleteUserModal.addEventListener('show.bs.modal', function (event) {
-        // Button that triggered the modal
-        const button = event.relatedTarget;
+    // Ensure the modal element exists before adding listeners
+    if (deleteUserModalElement) {
+        const deleteUserModal = new bootstrap.Modal(deleteUserModalElement); // Get Modal instance if needed later, or just use element
 
-        // Extract info from data-* attributes
-        const userId = button.getAttribute('data-user-id');
-        const userFullName = button.getAttribute('data-user-fullname').trim() || 'N/A'; // Handle empty names
-        const userUsername = button.getAttribute('data-user-username');
-        const userEmail = button.getAttribute('data-user-email');
-        const userRole = button.getAttribute('data-user-role');
+        const modalUserName = document.getElementById('modalUserName');
+        const modalUserUsername = document.getElementById('modalUserUsername');
+        const modalUserEmail = document.getElementById('modalUserEmail');
+        const modalUserRole = document.getElementById('modalUserRole');
+        const deleteUserForm = document.getElementById('deleteUserForm');
 
-        // Construct the deletion URL
-        const deleteUrl = "{{ url_for('delete_user', user_id=0) }}".replace('0', userId); // Construct URL dynamically
+        // Add event listener for when the modal is about to be shown
+        deleteUserModalElement.addEventListener('show.bs.modal', function (event) {
+            // Button that triggered the modal
+            const button = event.relatedTarget;
+            if (!button) return; // Exit if no button triggered (e.g., modal shown via JS)
 
-        // Update the modal's content
-        modalUserName.textContent = userFullName;
-        modalUserUsername.textContent = userUsername;
-        modalUserEmail.textContent = userEmail;
-        modalUserRole.textContent = userRole;
+            // Extract info from data-* attributes
+            const userId = button.getAttribute('data-user-id');
+            const userFullName = button.getAttribute('data-user-fullname').trim() || 'N/A'; // Handle empty names
+            const userUsername = button.getAttribute('data-user-username');
+            const userEmail = button.getAttribute('data-user-email');
+            const userRole = button.getAttribute('data-user-role');
 
-        // Update the form's action attribute
-        deleteUserForm.action = deleteUrl;
-    });
+            // Basic check for required elements
+            if (!modalUserName || !modalUserUsername || !modalUserEmail || !modalUserRole || !deleteUserForm) {
+                console.error("One or more modal elements not found!");
+                return;
+            }
 
-    // Optional: Clear modal content when hidden to prevent flash of old data
-    deleteUserModal.addEventListener('hidden.bs.modal', function () {
-         modalUserName.textContent = '';
-         modalUserUsername.textContent = '';
-         modalUserEmail.textContent = '';
-         modalUserRole.textContent = '';
-         deleteUserForm.action = ''; // Clear action
-    });
+            // Construct the deletion URL
+            // Ensure url_for generates a valid base URL even with a dummy ID like 0
+            const deleteUrl = "{{ url_for('delete_user', user_id=0) }}".replace('/0', '/' + userId); // More robust replacement
 
+            // Update the modal's content
+            modalUserName.textContent = userFullName;
+            modalUserUsername.textContent = userUsername;
+            modalUserEmail.textContent = userEmail;
+            modalUserRole.textContent = userRole;
+
+            // Update the form's action attribute
+            deleteUserForm.action = deleteUrl;
+            console.log(`Modal opened for user ID: ${userId}, Action: ${deleteUrl}`);
+        });
+
+        // Optional: Clear modal content when hidden to prevent flash of old data
+        deleteUserModalElement.addEventListener('hidden.bs.modal', function () {
+             if (modalUserName) modalUserName.textContent = '';
+             if (modalUserUsername) modalUserUsername.textContent = '';
+             if (modalUserEmail) modalUserEmail.textContent = '';
+             if (modalUserRole) modalUserRole.textContent = '';
+             if (deleteUserForm) deleteUserForm.action = ''; // Clear action
+        });
+    } else {
+        console.warn("Delete confirmation modal element (#deleteUserModal) not found.");
+    }
 });
 </script>
 {% endblock %}
