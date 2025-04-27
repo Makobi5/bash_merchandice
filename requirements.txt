@@ -1,13 +1,30 @@
+# Core web framework
 flask==3.0.2
-supabase==2.15.0
-python-dotenv==1.0.1
-reportlab==4.1.0
 werkzeug==3.0.1
-babel==2.14.0
+
+# Database interaction
+psycopg2-binary==2.9.9  # For PostgreSQL connection
+
+# Supabase - commenting out supabase dependencies that are causing conflicts
+# supabase==2.15.0
+# postgrest==1.0.1
+# gotrue==2.12.0
+# httpx==0.28.1
+# realtime==2.4.2
+# storage3==0.11.3
+# supafunc==0.9.4
+
+# Utils
+python-dotenv==1.0.1
 python-dateutil==2.9.0.post0
-gotrue==2.12.0
-httpx==0.28.1
-postgrest==1.0.1
-realtime==2.4.2
-storage3==0.11.3
-supafunc==0.9.4
+babel==2.14.0
+
+# Report generation
+reportlab==4.1.0
+
+# Additional useful packages
+flask-cors==4.0.0      # For handling CORS
+pyjwt==2.10.1          # Using the latest available version
+gunicorn==21.2.0       # Production WSGI server
+requests==2.31.0       # HTTP requests
+SQLAlchemy==2.0.22

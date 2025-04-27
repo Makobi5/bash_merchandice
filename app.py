@@ -11,6 +11,10 @@ from supabase.lib.client_options import ClientOptions
 from dotenv import load_dotenv
 import babel.dates
 from dateutil.relativedelta import relativedelta # For time difference formatting
+
+import psycopg2
+from psycopg2.extras import RealDictCursor
+import os
 # Removed duplicate import: from flask import request, get_flashed_messages (already imported via Flask)
 
 # Load environment variables
@@ -1026,7 +1030,201 @@ def delete_user(user_id):
     except Exception as e:
         print(f"Error deleting user: {e}")
         flash("An error occurred while deleting the user.", "danger")
-        return redirect(url_for('users'))           
+        return redirect(url_for('users'))     
+    
+# Get all products
+@app.route('/api/products', methods=['GET'])
+@login_required
+def get_products():
+    if not check_supabase():
+        return jsonify({'error': 'Database connection failed'}), 500
+
+    try:
+        response = supabase.table('products') \
+            .select('id, name, sku, category, price, stock, status, description, created_at, updated_at') \
+            .order('name') \
+            .execute()
+        
+        products = []
+        if response.data:
+            for product in response.data:
+                products.append({
+                    'id': product['id'],
+                    'name': product['name'],
+                    'sku': product['sku'],
+                    'category': product['category'],
+                    'price': product['price'],
+                    'stock': product['stock'],
+                    'status': 'active' if product['status'] else 'inactive',
+                    'description': product['description'],
+                    'created_at': product['created_at'],
+                    'updated_at': product['updated_at']
+                })
+        
+        return jsonify(products)
+    except Exception as e:
+        print(f"Error fetching products: {e}")
+        return jsonify({"error": "Failed to fetch products"}), 500
+
+# Get a single product
+@app.route('/api/products/<int:product_id>', methods=['GET'])
+@login_required
+def get_product(product_id):
+    if not check_supabase():
+        return jsonify({'error': 'Database connection failed'}), 500
+
+    try:
+        response = supabase.table('products') \
+            .select('id, name, sku, category, price, stock, status, description, created_at, updated_at') \
+            .eq('id', product_id) \
+            .maybe_single() \
+            .execute()
+        
+        if not response.data:
+            return jsonify({"error": "Product not found"}), 404
+            
+        product = {
+            'id': response.data['id'],
+            'name': response.data['name'],
+            'sku': response.data['sku'],
+            'category': response.data['category'],
+            'price': response.data['price'],
+            'stock': response.data['stock'],
+            'status': 'active' if response.data['status'] else 'inactive',
+            'description': response.data['description'],
+            'created_at': response.data['created_at'],
+            'updated_at': response.data['updated_at']
+        }
+        
+        return jsonify(product)
+    except Exception as e:
+        print(f"Error fetching product: {e}")
+        return jsonify({"error": "Failed to fetch product"}), 500
+
+# Create a new product
+@app.route('/api/products', methods=['POST'])
+@login_required
+def create_product():
+    if not check_supabase():
+        return jsonify({'error': 'Database connection failed'}), 500
+
+    data = request.json
+    if not data:
+        return jsonify({"error": "No data provided"}), 400
+
+    try:
+        status_bool = True if data.get('status') == 'active' else False
+        
+        response = supabase.table('products') \
+            .insert({
+                'name': data.get('name'),
+                'sku': data.get('sku'),
+                'category': data.get('category'),
+                'price': data.get('price'),
+                'stock': data.get('stock'),
+                'status': status_bool,
+                'description': data.get('description')
+            }) \
+            .execute()
+        
+        if not response.data or len(response.data) == 0:
+            return jsonify({"error": "Failed to create product"}), 500
+            
+        new_product = {
+            'id': response.data[0]['id'],
+            'name': response.data[0]['name'],
+            'sku': response.data[0]['sku'],
+            'category': response.data[0]['category'],
+            'price': response.data[0]['price'],
+            'stock': response.data[0]['stock'],
+            'status': 'active' if response.data[0]['status'] else 'inactive',
+            'description': response.data[0]['description'],
+            'created_at': response.data[0]['created_at'],
+            'updated_at': response.data[0]['updated_at']
+        }
+        
+        return jsonify(new_product), 201
+    except Exception as e:
+        print(f"Error creating product: {e}")
+        return jsonify({"error": "Failed to create product"}), 500
+
+# Update a product
+@app.route('/api/products/<int:product_id>', methods=['PUT'])
+@login_required
+def update_product(product_id):
+    if not check_supabase():
+        return jsonify({'error': 'Database connection failed'}), 500
+
+    data = request.json
+    if not data:
+        return jsonify({"error": "No data provided"}), 400
+
+    try:
+        status_bool = True if data.get('status') == 'active' else False
+        
+        response = supabase.table('products') \
+            .update({
+                'name': data.get('name'),
+                'sku': data.get('sku'),
+                'category': data.get('category'),
+                'price': data.get('price'),
+                'stock': data.get('stock'),
+                'status': status_bool,
+                'description': data.get('description'),
+                'updated_at': datetime.datetime.utcnow().isoformat()
+            }) \
+            .eq('id', product_id) \
+            .execute()
+        
+        if not response.data or len(response.data) == 0:
+            return jsonify({"error": "Product not found"}), 404
+            
+        updated_product = {
+            'id': response.data[0]['id'],
+            'name': response.data[0]['name'],
+            'sku': response.data[0]['sku'],
+            'category': response.data[0]['category'],
+            'price': response.data[0]['price'],
+            'stock': response.data[0]['stock'],
+            'status': 'active' if response.data[0]['status'] else 'inactive',
+            'description': response.data[0]['description'],
+            'created_at': response.data[0]['created_at'],
+            'updated_at': response.data[0]['updated_at']
+        }
+        
+        return jsonify(updated_product)
+    except Exception as e:
+        print(f"Error updating product: {e}")
+        return jsonify({"error": "Failed to update product"}), 500
+
+# Delete a product
+@app.route('/api/products/<int:product_id>', methods=['DELETE'])
+@login_required
+def delete_product(product_id):
+    if not check_supabase():
+        return jsonify({'error': 'Database connection failed'}), 500
+
+    try:
+        # First check if product exists
+        check_response = supabase.table('products') \
+            .select('id') \
+            .eq('id', product_id) \
+            .maybe_single() \
+            .execute()
+            
+        if not check_response.data:
+            return jsonify({"error": "Product not found"}), 404
+        
+        # Delete the product
+        delete_response = supabase.table('products') \
+            .delete() \
+            .eq('id', product_id) \
+            .execute()
+            
+        return jsonify({"message": "Product deleted successfully"}), 200
+    except Exception as e:
+        print(f"Error deleting product: {e}")
+        return jsonify({"error": "Failed to delete product"}), 500          
 
 # --- REMOVED DUPLICATE format_ugx definition and incorrect return statement ---
 
