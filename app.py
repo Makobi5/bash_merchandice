@@ -15,6 +15,8 @@ from dateutil.relativedelta import relativedelta # For time difference formattin
 import psycopg2
 from psycopg2.extras import RealDictCursor
 import os
+from werkzeug.utils import secure_filename
+import uuid
 # Removed duplicate import: from flask import request, get_flashed_messages (already imported via Flask)
 
 # Load environment variables
@@ -23,6 +25,15 @@ load_dotenv('.env')
 # Initialize Flask app
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.getenv('FLASK_SECRET_KEY')
+
+# Configure upload settings (add after app initialization)
+app.config['UPLOAD_FOLDER'] = 'uploads'  # Local folder for temporary storage
+app.config['ALLOWED_EXTENSIONS'] = {'png', 'jpg', 'jpeg', 'gif'}
+app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max
+
+def allowed_file(filename):
+    return '.' in filename and \
+           filename.rsplit('.', 1)[1].lower() in app.config['ALLOWED_EXTENSIONS']
 
 # Initialize Supabase client with options
 supabase_url = os.getenv('SUPABASE_URL')
@@ -45,7 +56,8 @@ else:
             supabase_key,
             options=ClientOptions(
                 postgrest_client_timeout=30,
-                schema="public" # Ensure schema is set if needed
+                schema="public",
+                 # Ensure schema is set if needed
             )
         )
         print("Supabase client (anon) initialized successfully.")
@@ -1101,31 +1113,78 @@ def get_product(product_id):
         print(f"Error fetching product: {e}")
         return jsonify({"error": "Failed to fetch product"}), 500
 
-# Create a new product
+# Update the create_product endpoint
 @app.route('/api/products', methods=['POST'])
 @login_required
 def create_product():
     if not check_supabase():
         return jsonify({'error': 'Database connection failed'}), 500
 
-    data = request.json
-    if not data:
-        return jsonify({"error": "No data provided"}), 400
-
     try:
-        status_bool = True if data.get('status') == 'active' else False
+        # Handle form data (including file upload)
+        name = request.form.get('name')
+        sku = request.form.get('sku')
+        category = request.form.get('category')
+        price = request.form.get('price')
+        stock = request.form.get('stock')
+        status = request.form.get('status')
+        description = request.form.get('description')
         
-        response = supabase.table('products') \
-            .insert({
-                'name': data.get('name'),
-                'sku': data.get('sku'),
-                'category': data.get('category'),
-                'price': data.get('price'),
-                'stock': data.get('stock'),
-                'status': status_bool,
-                'description': data.get('description')
-            }) \
-            .execute()
+        # Validate required fields
+        if not name or not category or not price or not stock:
+            return jsonify({"error": "Missing required fields"}), 400
+
+        # Handle file upload
+        image_url = None
+        if 'image' in request.files:
+            file = request.files['image']
+            if file and allowed_file(file.filename):
+                # Generate a unique filename
+                filename = f"{uuid.uuid4()}_{secure_filename(file.filename)}"
+                
+                # Upload to Supabase Storage
+                try:
+                    # First ensure the bucket exists
+                    try:
+                        supabase.storage.create_bucket("product-images", {
+                            "public": True,
+                            "allowed_mime_types": ["image/*"],
+                            "file_size_limit": "50MB"  # Adjust as needed
+                        })
+                    except Exception as e:
+                        # Bucket may already exist
+                        pass
+                    
+                    # Upload the file
+                    file_bytes = file.read()
+                    res = supabase.storage.from_("product-images").upload(
+                        file=file_bytes,
+                        path=filename,
+                        file_options={"content-type": file.content_type}
+                    )
+                    
+                    # Get public URL
+                    image_url = supabase.storage.from_("product-images").get_public_url(filename)
+                except Exception as upload_error:
+                    print(f"Error uploading image: {upload_error}")
+                    # Continue without image if upload fails
+
+        status_bool = status == 'active'
+        
+        # Create product data dict
+        product_data = {
+            'name': name,
+            'sku': sku,
+            'category': category,
+            'price': float(price),
+            'stock': int(stock),
+            'status': status_bool,
+            'description': description,
+            'image_url': image_url  # Add image URL to product data
+        }
+
+        # Insert into database
+        response = supabase.table('products').insert(product_data).execute()
         
         if not response.data or len(response.data) == 0:
             return jsonify({"error": "Failed to create product"}), 500
@@ -1139,6 +1198,7 @@ def create_product():
             'stock': response.data[0]['stock'],
             'status': 'active' if response.data[0]['status'] else 'inactive',
             'description': response.data[0]['description'],
+            'image_url': response.data[0].get('image_url'),
             'created_at': response.data[0]['created_at'],
             'updated_at': response.data[0]['updated_at']
         }
@@ -1224,7 +1284,79 @@ def delete_product(product_id):
         return jsonify({"message": "Product deleted successfully"}), 200
     except Exception as e:
         print(f"Error deleting product: {e}")
-        return jsonify({"error": "Failed to delete product"}), 500          
+        return jsonify({"error": "Failed to delete product"}), 500        
+
+@app.route('/api/products/<int:product_id>/image', methods=['POST'])
+@login_required
+def upload_product_image(product_id):
+    if not check_supabase():
+        return jsonify({'error': 'Database connection failed'}), 500
+
+    try:
+        # Check if product exists
+        product_response = supabase.table('products').select('id').eq('id', product_id).maybe_single().execute()
+        if not product_response.data:
+            return jsonify({"error": "Product not found"}), 404
+
+        # Check if file was uploaded
+        if 'image' not in request.files:
+            return jsonify({"error": "No image file provided"}), 400
+
+        file = request.files['image']
+        if not file or file.filename == '':
+            return jsonify({"error": "No selected file"}), 400
+
+        if not allowed_file(file.filename):
+            return jsonify({"error": "File type not allowed"}), 400
+
+        # Generate a unique filename
+        filename = f"product_{product_id}_{uuid.uuid4()}{secure_filename(file.filename)}"
+
+        # Upload to Supabase Storage
+        try:
+            # Ensure the bucket exists
+            try:
+                supabase.storage.create_bucket("product-images", {
+                    "public": True,
+                    "allowed_mime_types": ["image/*"],
+                    "file_size_limit": "50MB"
+                })
+            except Exception as e:
+                # Bucket may already exist
+                pass
+            
+            # Upload the file
+            file_bytes = file.read()
+            res = supabase.storage.from_("product-images").upload(
+                file=file_bytes,
+                path=filename,
+                file_options={"content-type": file.content_type}
+            )
+            
+            # Get public URL
+            image_url = supabase.storage.from_("product-images").get_public_url(filename)
+
+            # Update product with image URL
+            update_response = supabase.table('products').update({
+                'image_url': image_url,
+                'updated_at': datetime.datetime.utcnow().isoformat()
+            }).eq('id', product_id).execute()
+
+            if not update_response.data or len(update_response.data) == 0:
+                return jsonify({"error": "Failed to update product image"}), 500
+
+            return jsonify({
+                "message": "Image uploaded successfully",
+                "imageUrl": image_url
+            }), 200
+
+        except Exception as upload_error:
+            print(f"Error uploading image: {upload_error}")
+            return jsonify({"error": "Failed to upload image"}), 500
+
+    except Exception as e:
+        print(f"Error in image upload endpoint: {e}")
+        return jsonify({"error": "Internal server error"}), 500          
 
 # --- REMOVED DUPLICATE format_ugx definition and incorrect return statement ---
 

@@ -445,7 +445,7 @@ async function deleteProduct(productId) {
     }
 }
 
-// Save a new product or update existing one
+// Update the saveProduct function
 async function saveProduct() {
     // Get form values
     const name = document.getElementById('productName').value;
@@ -455,6 +455,7 @@ async function saveProduct() {
     const stock = parseInt(document.getElementById('productStock').value);
     const status = document.getElementById('productStatus').value;
     const description = document.getElementById('productDescription').value;
+    const imageFile = document.getElementById('productImage').files[0];
     
     // Validate form (basic validation)
     if (!name || !category || isNaN(price) || isNaN(stock)) {
@@ -462,20 +463,20 @@ async function saveProduct() {
         return;
     }
     
-    // Create product object
-    const productData = {
-        name,
-        sku,
-        category,
-        price,
-        stock,
-        status,
-        description
-    };
-    
     try {
+        let productData = {
+            name,
+            sku,
+            category,
+            price,
+            stock,
+            status,
+            description
+        };
+        
         let response;
         
+        // First save the product data without the image
         if (currentProductId) {
             // Update existing product
             response = await fetch(`/api/products/${currentProductId}`, {
@@ -485,8 +486,6 @@ async function saveProduct() {
                 },
                 body: JSON.stringify(productData)
             });
-            
-            toastMessage.textContent = 'Product successfully updated!';
         } else {
             // Create new product
             response = await fetch('/api/products', {
@@ -496,12 +495,30 @@ async function saveProduct() {
                 },
                 body: JSON.stringify(productData)
             });
-            
-            toastMessage.textContent = 'Product successfully added!';
         }
         
         if (!response.ok) {
-            throw new Error('Failed to save product');
+            throw new Error('Failed to save product data');
+        }
+        
+        const savedProduct = await response.json();
+        const productId = savedProduct.id || currentProductId;
+        
+        // If there's an image file, upload it separately
+        if (imageFile) {
+            const imageFormData = new FormData();
+            imageFormData.append('image', imageFile);
+            
+            const imageResponse = await fetch(`/api/products/${productId}/image`, {
+                method: 'POST',
+                body: imageFormData
+                // Don't set Content-Type header for FormData
+            });
+            
+            if (!imageResponse.ok) {
+                console.warn('Product saved but image upload failed');
+                // Consider showing a partial success message
+            }
         }
         
         // Refresh products from server
@@ -511,24 +528,14 @@ async function saveProduct() {
         resetForm();
         
         // Show success toast
+        toastMessage.textContent = currentProductId ? 
+            'Product successfully updated!' : 
+            'Product successfully added!';
         toast.show();
         
     } catch (error) {
         console.error('Error saving product:', error);
         showErrorToast('Failed to save product. Please try again.');
-    }
-}
-
-// Reset the form and modal state
-function resetForm() {
-    addProductForm.reset();
-    currentProductId = null;
-    document.getElementById('addProductModalLabel').textContent = 'Add New Product';
-    
-    // Hide modal if it's open
-    const modal = bootstrap.Modal.getInstance(document.getElementById('addProductModal'));
-    if (modal) {
-        modal.hide();
     }
 }
 
