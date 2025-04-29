@@ -237,10 +237,10 @@ def dashboard():
         top_products = [{'name': p['name'], 'units': p['units']} for p in top_products_response.data] if top_products_response.data else []
 
         # --- Fetch Inventory Alerts (Unchanged) ---
-        low_stock_response = supabase.table('products').select('id', count='exact').gt('stock_quantity', 0).lte('stock_quantity', 5).execute()
+        low_stock_response = supabase.table('products').select('id', count='exact').gt('stock', 0).lte('stock', 5).execute()
         low_stock_count = low_stock_response.count if hasattr(low_stock_response, 'count') else 0
 
-        out_of_stock_response = supabase.table('products').select('id', count='exact').eq('stock_quantity', 0).execute()
+        out_of_stock_response = supabase.table('products').select('id', count='exact').eq('stock', 0).execute()
         out_of_stock_count = out_of_stock_response.count if hasattr(out_of_stock_response, 'count') else 0
 
         # --- REMOVED 'get_recent_customers' RPC Call ---
