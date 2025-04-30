@@ -1,7 +1,7 @@
 from flask import Flask, render_template, jsonify, request, send_file, session, redirect, url_for, flash
 import os
 import io
-import datetime
+import datetime 
 import re
 from functools import wraps
 from reportlab.pdfgen import canvas
@@ -721,21 +721,85 @@ def profile():
     if not check_supabase():
         flash("Database connection failed.", "danger")
         return redirect(url_for('dashboard'))
-
+    
     current_auth_user_id = session.get('user', {}).get('id')
     if not current_auth_user_id:
         flash("Authentication error: Could not identify current user.", "danger")
         return redirect(url_for('login'))
-
+    
     # Check if we're in edit mode (from GET parameter or form submission)
     edit_mode = request.args.get('edit', '').lower() == 'true' or request.form.get('edit_mode') == 'true'
-
+    
     if request.method == 'POST' and edit_mode:
-        # --- Existing POST handling code remains the same ---
-        # ... (all your current POST handling logic)
-        # After successful update, redirect back to view mode
-        return redirect(url_for('profile'))
-
+        # Get form data
+        username = request.form.get('username')
+        first_name = request.form.get('first_name')
+        last_name = request.form.get('last_name')
+        new_password = request.form.get('new_password')
+        confirm_new_password = request.form.get('confirm_new_password')
+        
+        # Log the received data for debugging
+        print(f"Profile update requested for user {current_auth_user_id}")
+        print(f"Form data: username={username}, first_name={first_name}, last_name={last_name}")
+        
+        try:
+            # First, check if the username is already taken by another user
+            username_check = supabase.table('users') \
+                .select('id') \
+                .eq('username', username) \
+                .neq('auth_user_id', current_auth_user_id) \
+                .execute()
+            
+            if username_check.data and len(username_check.data) > 0:
+                flash("Username is already taken. Please choose another.", "danger")
+                return render_template('profile.html', profile={
+                    'username': username,
+                    'first_name': first_name,
+                    'last_name': last_name,
+                    'email': request.form.get('email'),
+                    'role': request.form.get('role')
+                }, edit_mode=True)
+            
+            # Import datetime correctly
+            from datetime import datetime
+            
+            # Prepare the update data
+            update_data = {
+                'username': username,
+                'first_name': first_name,
+                'last_name': last_name,
+                'updated_at': datetime.now().isoformat()  # Fixed: Using datetime.now() instead of datetime.utcnow()
+            }
+            
+            # Update the user profile in the database
+            response = supabase.table('users') \
+                .update(update_data) \
+                .eq('auth_user_id', current_auth_user_id) \
+                .execute()
+            
+            print(f"Supabase update response: {response}")
+            
+            # Handle password update if needed
+            if new_password and new_password == confirm_new_password:
+                # This depends on your auth setup - you may need to use a different method
+                # For now, we'll just log that we would update the password
+                print(f"Would update password for user {current_auth_user_id}")
+                # Add your password update logic here
+            
+            flash("Profile updated successfully!", "success")
+            return redirect(url_for('profile'))
+        
+        except Exception as e:
+            print(f"Error updating profile for {current_auth_user_id}: {e}")
+            flash("Error updating profile. Please try again.", "danger")
+            return render_template('profile.html', profile={
+                'username': username,
+                'first_name': first_name,
+                'last_name': last_name,
+                'email': request.form.get('email'),
+                'role': request.form.get('role')
+            }, edit_mode=True)
+    
     else:
         # GET request - show profile page
         try:
@@ -744,7 +808,7 @@ def profile():
                 .eq('auth_user_id', current_auth_user_id) \
                 .maybe_single() \
                 .execute()
-
+            
             if response.data:
                 user_data = response.data
                 user_data['created_at_formatted'] = "Account creation date not available"
@@ -753,7 +817,7 @@ def profile():
                 print(f"WARNING: Profile data not found in public.users for authenticated user {current_auth_user_id}")
                 flash("User profile data not found in the database. Please contact support.", "warning")
                 return redirect(url_for('dashboard'))
-
+        
         except Exception as e:
             print(f"Error fetching profile data for {current_auth_user_id}: {e}")
             flash("Could not load profile data due to a server error.", "danger")
