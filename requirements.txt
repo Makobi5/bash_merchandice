@@ -3,7 +3,7 @@ flask==3.0.2
 werkzeug==3.0.1
 
 # Database interaction
-psycopg2-binary==2.9.9  # For PostgreSQL connection
+psycopg2-binary==2.9.10  # For PostgreSQL connection
 
 # Supabase - commenting out supabase dependencies that are causing conflicts
 # supabase==2.15.0

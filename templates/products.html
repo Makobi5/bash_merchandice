@@ -13,7 +13,7 @@
 <!-- Products Container -->
 <div class="card mb-4">
     <div class="card-header d-flex justify-content-between align-items-center">
-        <span><span class="product-count">24</span> products</span>
+        <span><span class="product-count">0</span> products</span> <!-- Initial count will be updated by JS -->
         <div class="d-flex gap-2">
             <input type="text" class="form-control" placeholder="Search products..." id="productSearch">
             <select class="form-select" id="categoryFilter">
@@ -22,6 +22,7 @@
                 <option value="Clothing">Clothing</option>
                 <option value="Office">Office</option>
                 <option value="Books">Books</option>
+                <!-- Add other categories as needed -->
             </select>
         </div>
     </div>
@@ -42,75 +43,9 @@
                     </tr>
                 </thead>
                 <tbody id="productsTableBody">
+                    <!-- Product rows will be dynamically inserted here by JavaScript -->
                     <tr>
-                        <td>1001</td>
-                        <td><img src="/api/placeholder/40/40" alt="Product" class="product-thumbnail"></td>
-                        <td>Professional Notebook</td>
-                        <td>NB-PRO-1001</td>
-                        <td>Office</td>
-                        <td class="text-end">$12.99</td>
-                        <td class="text-center stock-normal">25</td>
-                        <td><span class="badge bg-success">Active</span></td>
-                        <td class="text-end">
-                            <button class="btn btn-sm btn-outline-primary me-1"><i class="bi bi-pencil"></i></button>
-                            <button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>
-                        </td>
-                    </tr>
-                    <tr>
-                        <td>1002</td>
-                        <td><img src="/api/placeholder/40/40" alt="Product" class="product-thumbnail"></td>
-                        <td>Wireless Mouse</td>
-                        <td>MOUSE-WL-1002</td>
-                        <td>Electronics</td>
-                        <td class="text-end">$24.99</td>
-                        <td class="text-center stock-warning">8</td>
-                        <td><span class="badge bg-success">Active</span></td>
-                        <td class="text-end">
-                            <button class="btn btn-sm btn-outline-primary me-1"><i class="bi bi-pencil"></i></button>
-                            <button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>
-                        </td>
-                    </tr>
-                    <tr>
-                        <td>1003</td>
-                        <td><img src="/api/placeholder/40/40" alt="Product" class="product-thumbnail"></td>
-                        <td>Black T-Shirt (L)</td>
-                        <td>TS-BLK-L-1003</td>
-                        <td>Clothing</td>
-                        <td class="text-end">$19.99</td>
-                        <td class="text-center stock-danger">2</td>
-                        <td><span class="badge bg-success">Active</span></td>
-                        <td class="text-end">
-                            <button class="btn btn-sm btn-outline-primary me-1"><i class="bi bi-pencil"></i></button>
-                            <button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>
-                        </td>
-                    </tr>
-                    <tr>
-                        <td>1004</td>
-                        <td><img src="/api/placeholder/40/40" alt="Product" class="product-thumbnail"></td>
-                        <td>Mechanical Keyboard</td>
-                        <td>KB-MECH-1004</td>
-                        <td>Electronics</td>
-                        <td class="text-end">$89.99</td>
-                        <td class="text-center stock-normal">15</td>
-                        <td><span class="badge bg-success">Active</span></td>
-                        <td class="text-end">
-                            <button class="btn btn-sm btn-outline-primary me-1"><i class="bi bi-pencil"></i></button>
-                            <button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>
-                        </td>
-                    </tr>
-                    <tr>
-                        <td>1005</td>
-                        <td><img src="/api/placeholder/40/40" alt="Product" class="product-thumbnail"></td>
-                        <td>Programming Book</td>
-                        <td>BK-PROG-1005</td>
-                        <td>Books</td>
-                        <td class="text-end">$34.99</td>
-                        <td class="text-center stock-normal">12</td>
-                        <td><span class="badge bg-secondary">Inactive</span></td>
-                        <td class="text-end">
-                            <button class="btn btn-sm btn-outline-primary me-1"><i class="bi bi-pencil"></i></button>
-                            <button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>
-                        </td>
+                        <td colspan="9" class="text-center py-4">Loading products...</td>
                     </tr>
                 </tbody>
             </table>
@@ -126,26 +61,14 @@
             </select>
         </div>
         <nav aria-label="Product pagination">
-            <ul class="pagination pagination-sm mb-0">
-                <li class="page-item disabled">
-                    <a class="page-link" href="#" aria-label="Previous">
-                        <span aria-hidden="true">&laquo;</span>
-                    </a>
-                </li>
-                <li class="page-item active"><a class="page-link" href="#">1</a></li>
-                <li class="page-item"><a class="page-link" href="#">2</a></li>
-                <li class="page-item"><a class="page-link" href="#">3</a></li>
-                <li class="page-item">
-                    <a class="page-link" href="#" aria-label="Next">
-                        <span aria-hidden="true">&raquo;</span>
-                    </a>
-                </li>
+            <ul class="pagination pagination-sm mb-0" id="productPagination">
+                <!-- Pagination links will be dynamically inserted here -->
             </ul>
         </nav>
     </div>
 </div>
 
-<!-- Add Product Modal -->
+<!-- Add/Edit Product Modal -->
 <div class="modal fade" id="addProductModal" tabindex="-1" aria-labelledby="addProductModalLabel" aria-hidden="true">
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
@@ -154,44 +77,45 @@
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body">
-                <form id="addProductForm">
+                <form id="addProductForm" enctype="multipart/form-data">
                     <div class="row mb-3">
                         <div class="col-md-6">
-                            <label for="productName" class="form-label">Product Name</label>
-                            <input type="text" class="form-control" id="productName" required>
+                            <label for="productName" class="form-label">Product Name <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" id="productName" name="name" required>
                         </div>
                         <div class="col-md-6">
                             <label for="productSKU" class="form-label">SKU/Item Code</label>
-                            <input type="text" class="form-control" id="productSKU" required>
+                            <input type="text" class="form-control" id="productSKU" name="sku">
                         </div>
                     </div>
                     <div class="row mb-3">
                         <div class="col-md-6">
-                            <label for="productCategory" class="form-label">Category</label>
-                            <select class="form-select" id="productCategory" required>
+                            <label for="productCategory" class="form-label">Category <span class="text-danger">*</span></label>
+                            <select class="form-select" id="productCategory" name="category" required>
                                 <option value="">Select Category</option>
                                 <option value="Electronics">Electronics</option>
                                 <option value="Clothing">Clothing</option>
                                 <option value="Office">Office</option>
                                 <option value="Books">Books</option>
+                                <!-- Add other categories as needed -->
                             </select>
                         </div>
                         <div class="col-md-6">
-                            <label for="productPrice" class="form-label">Unit Price</label>
+                            <label for="productPrice" class="form-label">Unit Price <span class="text-danger">*</span></label>
                             <div class="input-group">
                                 <span class="input-group-text">$</span>
-                                <input type="number" class="form-control" id="productPrice" step="0.01" min="0" required>
+                                <input type="number" class="form-control" id="productPrice" name="price" step="0.01" min="0" required>
                             </div>
                         </div>
                     </div>
                     <div class="row mb-3">
                         <div class="col-md-6">
-                            <label for="productStock" class="form-label">Initial Stock</label>
-                            <input type="number" class="form-control" id="productStock" min="0" required>
+                            <label for="productStock" class="form-label">Initial Stock <span class="text-danger">*</span></label>
+                            <input type="number" class="form-control" id="productStock" name="stock" min="0" required>
                         </div>
                         <div class="col-md-6">
-                            <label for="productStatus" class="form-label">Status</label>
-                            <select class="form-select" id="productStatus" required>
+                            <label for="productStatus" class="form-label">Status <span class="text-danger">*</span></label>
+                            <select class="form-select" id="productStatus" name="status" required>
                                 <option value="active" selected>Active</option>
                                 <option value="inactive">Inactive</option>
                             </select>
@@ -199,11 +123,15 @@
                     </div>
                     <div class="mb-3">
                         <label for="productDescription" class="form-label">Description</label>
-                        <textarea class="form-control" id="productDescription" rows="3"></textarea>
+                        <textarea class="form-control" id="productDescription" name="description" rows="3"></textarea>
+                    </div>
+                    <div class="mb-3" id="currentImageSection" style="display:none;">
+                        <label class="form-label">Current Image</label>
+                        <div><img id="currentProductImagePreview" src="#" alt="Current Product Image" style="max-height: 100px; max-width: 100%; border-radius: 4px; object-fit: cover;"></div>
                     </div>
                     <div class="mb-3">
-                        <label for="productImage" class="form-label">Product Image</label>
-                        <input type="file" class="form-control" id="productImage" accept="image/*">
+                        <label for="productImage" class="form-label">Product Image <small class="text-muted">(Leave blank to keep current image when editing)</small></label>
+                        <input type="file" class="form-control" id="productImage" name="image" accept="image/png, image/jpeg, image/gif">
                     </div>
                 </form>
             </div>
@@ -215,370 +143,310 @@
     </div>
 </div>
 
-<!-- Toast notification for successful operations -->
-<div class="toast-container position-fixed bottom-0 end-0 p-3">
+<!-- Toast notification container -->
+<div class="toast-container position-fixed bottom-0 end-0 p-3" style="z-index: 1100">
+    <!-- Success Toast -->
     <div id="successToast" class="toast align-items-center text-white bg-success border-0" role="alert" aria-live="assertive" aria-atomic="true">
         <div class="d-flex">
             <div class="toast-body">
                 <i class="bi bi-check-circle-fill me-2"></i>
-                <span id="toastMessage">Product successfully saved!</span>
+                <span id="toastMessage">Operation successful!</span>
             </div>
             <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
         </div>
     </div>
+    <!-- Error Toast (will be created by JS if needed) -->
 </div>
 {% endblock %}
 
 {% block styles %}
 <style>
-    /* Product-specific styles */
     .product-thumbnail {
         width: 40px;
         height: 40px;
         object-fit: cover;
         border-radius: 4px;
     }
-    
-    .stock-normal {
-        color: #2ecc71;
-        font-weight: 500;
-    }
-    
-    .stock-warning {
-        color: #f39c12;
-        font-weight: 500;
-    }
-    
-    .stock-danger {
-        color: #e74c3c;
-        font-weight: 700;
-    }
-    
-    /* Make sure table fits nicely */
-    .table th {
-        background-color: #f8f9fa;
-    }
-    
-    /* Add a gentle hover effect for table rows */
-    .table tr:hover {
-        background-color: rgba(52, 152, 219, 0.05);
-    }
+    .stock-normal { color: #198754; /* Bootstrap success green */ font-weight: 500; }
+    .stock-warning { color: #ffc107; /* Bootstrap warning yellow */ font-weight: 500; }
+    .stock-danger { color: #dc3545; /* Bootstrap danger red */ font-weight: 700; }
+    .table th { background-color: #f8f9fa; }
+    .table tr:hover { background-color: rgba(0, 123, 255, 0.05); /* Gentle blue hover */ }
+    .text-danger { color: #dc3545 !important; } /* Ensure asterisk for required fields is red */
 </style>
 {% endblock %}
 
 {% block scripts %}
 <script>
-// DOM elements
-const productSearch = document.getElementById('productSearch');
-const categoryFilter = document.getElementById('categoryFilter');
-const productsTableBody = document.getElementById('productsTableBody');
-const rowsPerPage = document.getElementById('rowsPerPage');
-const saveProductBtn = document.getElementById('saveProductBtn');
-const successToast = document.getElementById('successToast');
-const toastMessage = document.getElementById('toastMessage');
-const addProductForm = document.getElementById('addProductForm');
-
-// Initialize toast functionality
-const toast = new bootstrap.Toast(successToast);
-
-// Variable to store current products
-let products = [];
-let currentProductId = null; // For tracking which product is being edited
-
-// Fetch products from the database
-async function fetchProducts() {
-    try {
-        const response = await fetch('/api/products');
-        if (!response.ok) {
-            throw new Error('Failed to fetch products');
-        }
-        products = await response.json();
-        renderProducts();
-    } catch (error) {
-        console.error('Error fetching products:', error);
-        showErrorToast('Failed to load products. Please try again.');
-    }
-}
-
-// Filter products based on search and category
-function filterProducts() {
-    const searchTerm = productSearch.value.toLowerCase();
-    const category = categoryFilter.value;
-    
-    return products.filter(product => {
-        const matchesSearch = product.name.toLowerCase().includes(searchTerm) || 
-                             (product.sku && product.sku.toLowerCase().includes(searchTerm));
-        const matchesCategory = category === '' || product.category === category;
-        
-        return matchesSearch && matchesCategory;
-    });
-}
-
-// Update product count indicator
-function updateProductCount(count) {
-    document.querySelector('.product-count').textContent = count;
-}
-
-// Render products to table
-function renderProducts() {
-    const filteredProducts = filterProducts();
-    updateProductCount(filteredProducts.length);
-    
-    productsTableBody.innerHTML = '';
-    
-    if (filteredProducts.length === 0) {
-        productsTableBody.innerHTML = `
-            <tr>
-                <td colspan="9" class="text-center py-4">No products found matching your criteria</td>
-            </tr>
-        `;
-        return;
-    }
-    
-    filteredProducts.forEach(product => {
-        // Determine stock level class
-        let stockClass = 'stock-normal';
-        if (product.stock <= 5) {
-            stockClass = 'stock-danger';
-        } else if (product.stock <= 10) {
-            stockClass = 'stock-warning';
-        }
-        
-        // Determine status badge
-        const statusBadge = product.status === 'active' ? 
-            '<span class="badge bg-success">Active</span>' : 
-            '<span class="badge bg-secondary">Inactive</span>';
-        
-        productsTableBody.innerHTML += `
-            <tr data-id="${product.id}">
-                <td>${product.id}</td>
-                <td><img src="/api/placeholder/40/40" alt="${product.name}" class="product-thumbnail"></td>
-                <td>${product.name}</td>
-                <td>${product.sku || ''}</td>
-                <td>${product.category}</td>
-                <td class="text-end">$${parseFloat(product.price).toFixed(2)}</td>
-                <td class="text-center ${stockClass}">${product.stock}</td>
-                <td>${statusBadge}</td>
-                <td class="text-end">
-                    <button class="btn btn-sm btn-outline-primary me-1 edit-product-btn"><i class="bi bi-pencil"></i></button>
-                    <button class="btn btn-sm btn-outline-danger delete-product-btn"><i class="bi bi-trash"></i></button>
-                </td>
-            </tr>
-        `;
-    });
-    
-    // Attach event listeners to buttons
-    attachButtonEventListeners();
-}
-
-// Attach event listeners to edit and delete buttons
-function attachButtonEventListeners() {
-    // Edit buttons
-    document.querySelectorAll('.edit-product-btn').forEach(btn => {
-        btn.addEventListener('click', function() {
-            const productId = this.closest('tr').dataset.id;
-            editProduct(productId);
-        });
-    });
-    
-    // Delete buttons
-    document.querySelectorAll('.delete-product-btn').forEach(btn => {
-        btn.addEventListener('click', function() {
-            const productId = this.closest('tr').dataset.id;
-            deleteProduct(productId);
-        });
-    });
-}
-
-// Edit product function
-function editProduct(productId) {
-    const product = products.find(p => p.id == productId);
-    if (!product) return;
-    
-    // Set the current product ID for the save function to use
-    currentProductId = product.id;
-    
-    // Populate form fields
-    document.getElementById('productName').value = product.name;
-    document.getElementById('productSKU').value = product.sku || '';
-    document.getElementById('productCategory').value = product.category;
-    document.getElementById('productPrice').value = product.price;
-    document.getElementById('productStock').value = product.stock;
-    document.getElementById('productStatus').value = product.status;
-    document.getElementById('productDescription').value = product.description || '';
-    
-    // Update modal title and show
-    document.getElementById('addProductModalLabel').textContent = 'Edit Product';
-    const modal = new bootstrap.Modal(document.getElementById('addProductModal'));
-    modal.show();
-}
-
-// Delete product function
-async function deleteProduct(productId) {
-    if (confirm('Are you sure you want to delete this product?')) {
-        try {
-            const response = await fetch(`/api/products/${productId}`, {
-                method: 'DELETE',
-                headers: {
-                    'Content-Type': 'application/json'
-                }
-            });
-            
-            if (!response.ok) {
-                throw new Error('Failed to delete product');
-            }
-            
-            // Remove from local array
-            const index = products.findIndex(p => p.id == productId);
-            if (index !== -1) {
-                products.splice(index, 1);
-                renderProducts();
-                
-                // Show success toast
-                toastMessage.textContent = 'Product successfully deleted!';
-                toast.show();
-            }
-        } catch (error) {
-            console.error('Error deleting product:', error);
-            showErrorToast('Failed to delete product. Please try again.');
-        }
-    }
-}
-
-// Update the saveProduct function
-async function saveProduct() {
-    // Get form values
-    const name = document.getElementById('productName').value;
-    const sku = document.getElementById('productSKU').value;
-    const category = document.getElementById('productCategory').value;
-    const price = parseFloat(document.getElementById('productPrice').value);
-    const stock = parseInt(document.getElementById('productStock').value);
-    const status = document.getElementById('productStatus').value;
-    const description = document.getElementById('productDescription').value;
-    const imageFile = document.getElementById('productImage').files[0];
-    
-    // Validate form (basic validation)
-    if (!name || !category || isNaN(price) || isNaN(stock)) {
-        alert('Please fill all required fields correctly');
-        return;
-    }
-    
-    try {
-        let productData = {
-            name,
-            sku,
-            category,
-            price,
-            stock,
-            status,
-            description
-        };
-        
-        let response;
-        
-        // First save the product data without the image
-        if (currentProductId) {
-            // Update existing product
-            response = await fetch(`/api/products/${currentProductId}`, {
-                method: 'PUT',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify(productData)
-            });
-        } else {
-            // Create new product
-            response = await fetch('/api/products', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify(productData)
-            });
-        }
-        
-        if (!response.ok) {
-            throw new Error('Failed to save product data');
-        }
-        
-        const savedProduct = await response.json();
-        const productId = savedProduct.id || currentProductId;
-        
-        // If there's an image file, upload it separately
-        if (imageFile) {
-            const imageFormData = new FormData();
-            imageFormData.append('image', imageFile);
-            
-            const imageResponse = await fetch(`/api/products/${productId}/image`, {
-                method: 'POST',
-                body: imageFormData
-                // Don't set Content-Type header for FormData
-            });
-            
-            if (!imageResponse.ok) {
-                console.warn('Product saved but image upload failed');
-                // Consider showing a partial success message
-            }
-        }
-        
-        // Refresh products from server
-        await fetchProducts();
-        
-        // Reset form and hide modal
-        resetForm();
-        
-        // Show success toast
-        toastMessage.textContent = currentProductId ? 
-            'Product successfully updated!' : 
-            'Product successfully added!';
-        toast.show();
-        
-    } catch (error) {
-        console.error('Error saving product:', error);
-        showErrorToast('Failed to save product. Please try again.');
-    }
-}
-
-// Show error toast
-function showErrorToast(message) {
-    // Create error toast if it doesn't exist
-    if (!document.getElementById('errorToast')) {
-        const toastContainer = document.querySelector('.toast-container');
-        toastContainer.innerHTML += `
-            <div id="errorToast" class="toast align-items-center text-white bg-danger border-0" role="alert" aria-live="assertive" aria-atomic="true">
-                <div class="d-flex">
-                    <div class="toast-body">
-                        <i class="bi bi-exclamation-circle-fill me-2"></i>
-                        <span id="errorToastMessage">${message}</span>
-                    </div>
-                    <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
-                </div>
-            </div>
-        `;
-    } else {
-        document.getElementById('errorToastMessage').textContent = message;
-    }
-    
-    const errorToast = new bootstrap.Toast(document.getElementById('errorToast'));
-    errorToast.show();
-}
-
-// Initialize event listeners
 document.addEventListener('DOMContentLoaded', function() {
+    // DOM elements
+    const productSearch = document.getElementById('productSearch');
+    const categoryFilter = document.getElementById('categoryFilter');
+    const productsTableBody = document.getElementById('productsTableBody');
+    // const rowsPerPageSelect = document.getElementById('rowsPerPage'); // For pagination later
+    // const paginationContainer = document.getElementById('productPagination'); // For pagination later
+
+    const addProductModalEl = document.getElementById('addProductModal');
+    const addProductModal = new bootstrap.Modal(addProductModalEl);
+    const addProductForm = document.getElementById('addProductForm');
+    const modalTitle = document.getElementById('addProductModalLabel');
+    const saveProductBtn = document.getElementById('saveProductBtn');
+    
+    const successToastEl = document.getElementById('successToast');
+    const bsSuccessToast = new bootstrap.Toast(successToastEl);
+    const toastMessageEl = document.getElementById('toastMessage');
+
+    const currentImageSection = document.getElementById('currentImageSection');
+    const currentProductImagePreview = document.getElementById('currentProductImagePreview');
+    const productImageInput = document.getElementById('productImage');
+
+
+    let allProducts = []; // Store all fetched products
+    let currentProductId = null; // For tracking which product is being edited
+
+    // --- UTILITY FUNCTIONS ---
+    function showSuccessToast(message) {
+        toastMessageEl.textContent = message;
+        bsSuccessToast.show();
+    }
+
+    function showErrorToast(message) {
+        const toastContainer = document.querySelector('.toast-container');
+        let errorToastEl = document.getElementById('errorToast');
+        if (!errorToastEl) {
+            const errorToastHTML = `
+                <div id="errorToast" class="toast align-items-center text-white bg-danger border-0" role="alert" aria-live="assertive" aria-atomic="true">
+                    <div class="d-flex">
+                        <div class="toast-body">
+                            <i class="bi bi-exclamation-triangle-fill me-2"></i>
+                            <span id="errorToastMessage">${message}</span>
+                        </div>
+                        <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+                    </div>
+                </div>`;
+            toastContainer.insertAdjacentHTML('beforeend', errorToastHTML);
+            errorToastEl = document.getElementById('errorToast');
+        } else {
+            errorToastEl.querySelector('#errorToastMessage').textContent = message;
+        }
+        const bsErrorToast = new bootstrap.Toast(errorToastEl);
+        bsErrorToast.show();
+    }
+    
+    function resetForm() {
+        addProductForm.reset(); // Resets most form fields
+        productImageInput.value = null; // Explicitly clear file input
+        currentProductId = null;
+        modalTitle.textContent = 'Add New Product';
+        currentImageSection.style.display = 'none';
+        currentProductImagePreview.src = '#';
+        // Clear any validation states if you add them
+    }
+
+    // --- DATA FETCHING AND RENDERING ---
+    async function fetchProducts() {
+        try {
+            const response = await fetch('/api/products');
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({ error: 'Failed to fetch products' }));
+                throw new Error(errorData.error || 'Server error');
+            }
+            allProducts = await response.json();
+            renderProducts();
+        } catch (error) {
+            console.error('Error fetching products:', error);
+            showErrorToast(`Error fetching products: ${error.message}`);
+            productsTableBody.innerHTML = `<tr><td colspan="9" class="text-center py-4">Could not load products.</td></tr>`;
+        }
+    }
+
+    function filterAndSortProducts() {
+        const searchTerm = productSearch.value.toLowerCase();
+        const category = categoryFilter.value;
+        
+        let filtered = allProducts.filter(product => {
+            const nameMatch = product.name.toLowerCase().includes(searchTerm);
+            const skuMatch = product.sku ? product.sku.toLowerCase().includes(searchTerm) : false;
+            const categoryMatch = category === '' || product.category === category;
+            return (nameMatch || skuMatch) && categoryMatch;
+        });
+        // Add sorting if needed, e.g., by name or ID
+        filtered.sort((a, b) => a.id - b.id); // Sort by ID ascending
+        return filtered;
+    }
+
+    function renderProducts() {
+        const filteredProducts = filterAndSortProducts();
+        document.querySelector('.product-count').textContent = filteredProducts.length;
+        
+        productsTableBody.innerHTML = ''; // Clear existing rows
+        
+        if (filteredProducts.length === 0) {
+            productsTableBody.innerHTML = `<tr><td colspan="9" class="text-center py-4">No products found.</td></tr>`;
+            return;
+        }
+        
+        filteredProducts.forEach(product => {
+            let stockClass = 'stock-normal';
+            if (product.stock <= 0) stockClass = 'stock-danger';
+            else if (product.stock <= 5) stockClass = 'stock-danger'; // Low stock threshold
+            else if (product.stock <= 10) stockClass = 'stock-warning'; // Warning threshold
+            
+            const statusBadge = product.status === 'active' 
+                ? `<span class="badge bg-success">Active</span>` 
+                : `<span class="badge bg-secondary">Inactive</span>`;
+            
+            // Use placeholder if image_url is missing
+            const imageUrl = product.image_url || '/static/images/placeholder_product.png'; // Ensure you have this placeholder
+
+            const row = `
+                <tr data-id="${product.id}">
+                    <td>${product.id}</td>
+                    <td><img src="${imageUrl}" alt="${product.name}" class="product-thumbnail"></td>
+                    <td>${product.name}</td>
+                    <td>${product.sku || 'N/A'}</td>
+                    <td>${product.category}</td>
+                    <td class="text-end">$${parseFloat(product.price).toFixed(2)}</td>
+                    <td class="text-center ${stockClass}">${product.stock}</td>
+                    <td>${statusBadge}</td>
+                    <td class="text-end">
+                        <button class="btn btn-sm btn-outline-primary me-1 edit-product-btn" title="Edit"><i class="bi bi-pencil-fill"></i></button>
+                        <button class="btn btn-sm btn-outline-danger delete-product-btn" title="Delete"><i class="bi bi-trash-fill"></i></button>
+                    </td>
+                </tr>
+            `;
+            productsTableBody.insertAdjacentHTML('beforeend', row);
+        });
+        attachActionListeners();
+    }
+
+    function attachActionListeners() {
+        document.querySelectorAll('.edit-product-btn').forEach(btn => {
+            btn.addEventListener('click', handleEditProduct);
+        });
+        document.querySelectorAll('.delete-product-btn').forEach(btn => {
+            btn.addEventListener('click', handleDeleteProduct);
+        });
+    }
+
+    // --- CRUD OPERATIONS ---
+    function handleEditProduct(event) {
+        const productId = event.currentTarget.closest('tr').dataset.id;
+        const product = allProducts.find(p => p.id == productId);
+        if (!product) {
+            showErrorToast('Product not found.');
+            return;
+        }
+        
+        currentProductId = product.id;
+        modalTitle.textContent = 'Edit Product';
+        
+        document.getElementById('productName').value = product.name;
+        document.getElementById('productSKU').value = product.sku || '';
+        document.getElementById('productCategory').value = product.category;
+        document.getElementById('productPrice').value = product.price;
+        document.getElementById('productStock').value = product.stock;
+        document.getElementById('productStatus').value = product.status; // 'active' or 'inactive'
+        document.getElementById('productDescription').value = product.description || '';
+        productImageInput.value = null; // Clear file input
+
+        if (product.image_url) {
+            currentProductImagePreview.src = product.image_url;
+            currentImageSection.style.display = 'block';
+        } else {
+            currentImageSection.style.display = 'none';
+        }
+        addProductModal.show();
+    }
+
+    async function handleDeleteProduct(event) {
+        const productId = event.currentTarget.closest('tr').dataset.id;
+        const product = allProducts.find(p => p.id == productId);
+        if (!product) {
+            showErrorToast('Product not found.');
+            return;
+        }
+
+        if (confirm(`Are you sure you want to delete "${product.name}"?`)) {
+            try {
+                const response = await fetch(`/api/products/${productId}`, { method: 'DELETE' });
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({ error: 'Failed to delete product' }));
+                    throw new Error(errorData.error || 'Server error');
+                }
+                await fetchProducts(); // Refresh list
+                showSuccessToast('Product successfully deleted!');
+            } catch (error) {
+                console.error('Error deleting product:', error);
+                showErrorToast(`Error deleting product: ${error.message}`);
+            }
+        }
+    }
+
+    async function handleSaveProduct() {
+        // Basic client-side validation (add more as needed)
+        if (!addProductForm.checkValidity()) {
+            addProductForm.reportValidity();
+            return;
+        }
+
+        const formData = new FormData(addProductForm);
+        // Note: 'name' attributes on form inputs are used by FormData
+
+        let url = '/api/products';
+        let method = 'POST';
+
+        if (currentProductId) {
+            url = `/api/products/${currentProductId}`;
+            method = 'PUT';
+        }
+
+        try {
+            saveProductBtn.disabled = true;
+            saveProductBtn.innerHTML = `<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Saving...`;
+
+            const response = await fetch(url, {
+                method: method,
+                body: formData // Browser handles Content-Type for FormData
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({ error: `Failed to ${currentProductId ? 'update' : 'create'} product` }));
+                throw new Error(errorData.error || 'Server error during save.');
+            }
+
+            // const savedProduct = await response.json(); // Contains the created/updated product
+
+            await fetchProducts(); // Refresh list with latest data
+            addProductModal.hide();
+            showSuccessToast(currentProductId ? 'Product successfully updated!' : 'Product successfully added!');
+            
+        } catch (error) {
+            console.error('Error saving product:', error);
+            showErrorToast(`Error saving product: ${error.message}`);
+        } finally {
+            saveProductBtn.disabled = false;
+            saveProductBtn.textContent = 'Save Product';
+        }
+    }
+
+    // --- EVENT LISTENERS ---
+    productSearch.addEventListener('input', renderProducts);
+    categoryFilter.addEventListener('change', renderProducts);
+    saveProductBtn.addEventListener('click', handleSaveProduct);
+    
+    // Reset form when modal is opened for adding (not editing) or when closed
+    addProductModalEl.addEventListener('show.bs.modal', function (event) {
+        // If triggered by "Add New Product" button, currentProductId will be null
+        // If triggered by edit, currentProductId is set in handleEditProduct before modal.show()
+        if (!currentProductId) { // This means we are adding a new product
+            resetForm(); // Ensure form is clean for adding
+        }
+    });
+    addProductModalEl.addEventListener('hidden.bs.modal', resetForm); // Always reset after close
+
     // Initial data load
     fetchProducts();
-    
-    // Search functionality
-    productSearch.addEventListener('input', renderProducts);
-    
-    // Category filter
-    categoryFilter.addEventListener('change', renderProducts);
-    
-    // Save product button
-    saveProductBtn.addEventListener('click', saveProduct);
-    
-    // Reset modal title when adding new product
-    document.getElementById('addProductModal').addEventListener('hidden.bs.modal', resetForm);
 });
 </script>
 {% endblock %}
