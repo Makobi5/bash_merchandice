@@ -17,6 +17,7 @@ from psycopg2.extras import RealDictCursor
 import os
 from werkzeug.utils import secure_filename
 import uuid
+from dateutil.relativedelta import relativedelta 
 # Removed duplicate import: from flask import request, get_flashed_messages (already imported via Flask)
 
 # Load environment variables
@@ -148,6 +149,16 @@ def inject_globals():
 
     # --- Return the dictionary for the template context ---
     return dict(user=user_info, format_ugx=format_ugx, now=datetime.datetime.utcnow)
+
+def login_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'access_token' not in session or 'user' not in session:
+            flash('Please log in to access this page.', 'info')
+            return redirect(url_for('login', next=request.url))
+        # Refresh user role from DB on each request if needed, or rely on context_processor
+        return f(*args, **kwargs)
+    return decorated_function    
 # --- END OF CORRECTED CONTEXT PROCESSOR ---
 
 # --- MODIFIED LOGIN ROUTE (Only to store initial names) ---
@@ -221,77 +232,61 @@ def time_ago(dt_string):
         print(f"Error formatting time_ago for '{dt_string}': {e}")
         return "Invalid date"
 
-# --- DASHBOARD ROUTE (No changes needed here for the fix) ---
-# --- MODIFIED DASHBOARD ROUTE ---
 @app.route('/dashboard')
 @login_required
 def dashboard():
-    # Check connection at the start of the route
     if not check_supabase():
-        flash("Application error: Database connection failed. Please contact support.", "danger")
-        # Render fallback dashboard even if context processor also failed
-        # Removed recent_customers from the fallback render_template context
+        flash("Application error: Database connection failed.", "danger")
         return render_template('dashboard.html', error='Database connection failed.', total_sales=0, total_transactions=0, top_products=[], low_stock_count=0, out_of_stock_count=0, recent_transactions=[])
 
     try:
-        today_start = datetime.datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        today_start = datetime.datetime.now(datetime.timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
         today_end = today_start + datetime.timedelta(days=1)
 
-        # --- Fetch Sales and Transaction Counts (Unchanged) ---
         sales_response = supabase.table('transactions').select('total_amount').gte('date', today_start.isoformat()).lt('date', today_end.isoformat()).execute()
         total_sales = sum(txn['total_amount'] for txn in sales_response.data) if sales_response.data else 0
 
         txn_count_response = supabase.table('transactions').select('id', count='exact').gte('date', today_start.isoformat()).lt('date', today_end.isoformat()).execute()
         total_transactions = txn_count_response.count if hasattr(txn_count_response, 'count') else 0
 
-        # --- Fetch Top Products (Unchanged) ---
         top_products_response = supabase.rpc('get_top_products', {'query_date': today_start.date().isoformat()}).execute()
         top_products = [{'name': p['name'], 'units': p['units']} for p in top_products_response.data] if top_products_response.data else []
 
-        # --- Fetch Inventory Alerts (Unchanged) ---
         low_stock_response = supabase.table('products').select('id', count='exact').gt('stock', 0).lte('stock', 5).execute()
         low_stock_count = low_stock_response.count if hasattr(low_stock_response, 'count') else 0
 
         out_of_stock_response = supabase.table('products').select('id', count='exact').eq('stock', 0).execute()
         out_of_stock_count = out_of_stock_response.count if hasattr(out_of_stock_response, 'count') else 0
+        
+        recent_transactions_data = []
+        try:
+            recent_transactions_response = supabase.table('transactions') \
+                .select('''
+                    transaction_code,
+                    date,
+                    total_amount,
+                    customer:customers ( name ),
+                    items:transaction_items ( products(name), quantity, price )
+                ''') \
+                .order('date', desc=True) \
+                .limit(5) \
+                .execute()
 
-        # --- REMOVED 'get_recent_customers' RPC Call ---
-        # recent_customers_response = supabase.rpc('get_recent_customers').execute()
-        # recent_customers = [] # Set to empty or remove if not needed by template
-        # if recent_customers_response.data:
-        #     for customer in recent_customers_response.data:
-        #         recent_customers.append({'name': customer.get('name', 'Unknown'), 'time_ago': time_ago(customer.get('latest_transaction'))})
-        # --- END REMOVAL ---
-
-        # --- MODIFIED: Fetch recent transactions WITHOUT 'customers(name)' ---
-        # Also selecting 'created_by_user_id' to potentially display user later
-        recent_transactions_response = supabase.table('transactions') \
-            .select('id, transaction_code, date, total_amount, created_by_user_id') \
-            .order('date', desc=True) \
-            .limit(5) \
-            .execute()
-        # --- END MODIFICATION ---
-
-        recent_transactions = []
-        if recent_transactions_response.data:
-            # TODO: OPTIONAL - Fetch user names for display if needed
-            # user_ids = {txn['created_by_user_id'] for txn in recent_transactions_response.data if txn['created_by_user_id']}
-            # user_map = {}
-            # if user_ids:
-            #     user_response = supabase.table('users').select('id, first_name, last_name').in_('id', list(user_ids)).execute()
-            #     if user_response.data:
-            #         user_map = {user['id']: f"{user['first_name']} {user['last_name']}" for user in user_response.data}
-
-            for txn in recent_transactions_response.data:
-                # creator_name = user_map.get(txn['created_by_user_id'], 'System/Unknown') # Example if fetching users
-                recent_transactions.append({
-                    'id': txn['transaction_code'],
-                    'date': datetime.datetime.fromisoformat(txn['date'].replace('Z', '+00:00')).strftime('%d/%m/%Y %I:%M %p'),
-                    # --- REMOVED 'customer_name' ---
-                    # 'customer_name': txn['customers']['name'] if txn['customers'] else 'N/A',
-                    # 'creator_name': creator_name, # Example if fetching users
-                    'total': txn['total_amount']
-                })
+            if recent_transactions_response.data:
+                for txn in recent_transactions_response.data:
+                    customer_info = txn.get('customer')
+                    customer_name = customer_info['name'] if customer_info else 'Walk-in/N/A'
+                    
+                    recent_transactions_data.append({
+                        'transaction_code': txn['transaction_code'],
+                        'date_formatted': datetime.datetime.fromisoformat(txn['date'].replace('Z', '+00:00')).strftime('%d/%m/%y %I:%M %p'),
+                        'customer_name': customer_name,
+                        'total': txn['total_amount']
+                        # items are not typically displayed in dashboard summary
+                    })
+        except Exception as e_rt:
+            print(f"Error fetching recent transactions for dashboard: {e_rt}")
+            # flash("Could not load recent transactions.", "warning") # Optional
 
         return render_template(
             'dashboard.html',
@@ -300,22 +295,14 @@ def dashboard():
             top_products=top_products,
             low_stock_count=low_stock_count,
             out_of_stock_count=out_of_stock_count,
-            # --- REMOVED 'recent_customers' ---
-            # recent_customers=recent_customers,
-            recent_transactions=recent_transactions
+            recent_transactions=recent_transactions_data
         )
 
     except Exception as e:
         print(f"Dashboard error: {str(e)}")
-        # Log the specific error, but provide a generic message to the user
-        flash(f"Error loading dashboard data. Please check server logs.", "danger")
-        # Render fallback dashboard even if context processor also failed
-        # Removed recent_customers from the fallback render_template context
-        return render_template(
-            'dashboard.html', total_sales=0, total_transactions=0, top_products=[],
-            low_stock_count=0, out_of_stock_count=0, recent_transactions=[],
-            error="Could not load dashboard data."
-        )
+        flash(f"Error loading dashboard data.", "danger")
+        return render_template('dashboard.html', total_sales=0, total_transactions=0, top_products=[], low_stock_count=0, out_of_stock_count=0, recent_transactions=[], error="Could not load dashboard data.")
+
 
 
 # --- MODIFIED REGISTER ROUTE ---
@@ -476,25 +463,387 @@ def transactions():
     if not check_supabase():
         flash("Database connection failed.", "danger")
         return render_template('transactions.html', transactions=[])
+    
     try:
-        response = supabase.table('transactions').select('*, customers(name)').order('date', desc=True).execute()
+        # Fetch transactions with customer, employee info, and items for receipt
+        response = supabase.table('transactions') \
+            .select('''
+                id, 
+                transaction_code, 
+                date, 
+                total_amount, 
+                payment_method,
+                notes,
+                customer:customers ( id, name ), 
+                employee_creator:created_by_user_id ( id, first_name, last_name ),
+                items:transaction_items ( products (name), quantity, price )
+            ''') \
+            .order('date', desc=True) \
+            .execute()
+        
         transactions_data = []
         if response.data:
             for txn in response.data:
-                 transactions_data.append({
-                    'id': txn['transaction_code'],
+                customer_info = txn.get('customer')
+                customer_name = customer_info['name'] if customer_info else 'Walk-in/N/A'
+                
+                employee_info = txn.get('employee_creator')
+                employee_name = f"{employee_info['first_name']} {employee_info['last_name']}" if employee_info else 'System/Unknown'
+                
+                items_for_receipt = []
+                if txn.get('items'):
+                    for item in txn['items']:
+                        product_name = item['products']['name'] if item.get('products') else 'Unknown Item'
+                        items_for_receipt.append({
+                            'name': product_name,
+                            'quantity': item['quantity'],
+                            'price': item['price']
+                        })
+
+                transactions_data.append({
+                    'id': txn['id'], # Pass the actual transaction ID for edit links
+                    'transaction_code': txn['transaction_code'],
                     'date': datetime.datetime.fromisoformat(txn['date'].replace('Z', '+00:00')).strftime('%d/%m/%Y %I:%M %p'),
-                    'customer_name': txn['customers']['name'] if txn['customers'] else 'N/A',
-                    'total': txn['total_amount']
+                    'customer_name': customer_name,
+                    'employee_name': employee_name,
+                    'total': txn['total_amount'],
+                    'payment_method': txn.get('payment_method', 'N/A'), # Provide default if null
+                    'items': items_for_receipt # Pass formatted items
                 })
+        
         return render_template('transactions.html', transactions=transactions_data)
+    
     except Exception as e:
-        print(f"Error fetching transactions: {e}")
-        flash("Could not load transaction data.", "danger")
+        print(f"Error fetching transactions: {type(e).__name__} - {e}")
+        import traceback
+        traceback.print_exc()
+        flash("Could not load transaction data. Check server logs for details.", "danger")
         return render_template('transactions.html', transactions=[])
 
+@app.route('/transactions/edit/<int:txn_id>', methods=['GET', 'POST'])
+@login_required
+def edit_transaction(txn_id):
+    if not check_supabase():
+        flash("Database connection failed.", "danger")
+        return redirect(url_for('transactions'))
+    
+    # Only allow admins to edit transactions (using role from user profile table)
+    user_profile_role = None
+    current_auth_id = session.get('user', {}).get('id')
+    if current_auth_id:
+        try:
+            # Query your actual user profile table ('users' or 'employees')
+            role_res = supabase.table('users').select('role').eq('auth_user_id', current_auth_id).maybe_single().execute()
+            if role_res.data:
+                user_profile_role = role_res.data['role']
+        except Exception as e_role:
+            print(f"Error fetching user role for edit_transaction: {e_role}")
 
+    if user_profile_role != 'admin':
+        flash("You don't have permission to edit transactions.", "danger")
+        return redirect(url_for('transactions'))
+    
+    if request.method == 'POST':
+        try:
+            customer_id_form = request.form.get('customer_id')
+            payment_method = request.form.get('payment_method')
+            notes = request.form.get('notes')
+            
+            update_data = {
+                'customer_id': int(customer_id_form) if customer_id_form else None, # Ensure None if empty
+                'payment_method': payment_method,
+                'notes': notes,
+                'updated_at': datetime.datetime.now(datetime.timezone.utc).isoformat()
+            }
+            
+            response = supabase.table('transactions') \
+                .update(update_data) \
+                .eq('id', txn_id) \
+                .execute()
+            
+            if response.data: # supabase-py update returns list of updated records
+                flash("Transaction updated successfully!", "success")
+            else: # No data returned, likely means no rows matched or RLS issue not raising an exception
+                flash("Failed to update transaction or no changes made.", "warning") # More nuanced message
+            return redirect(url_for('transactions'))
+        
+        except Exception as e:
+            print(f"Error updating transaction {txn_id}: {type(e).__name__} - {e}")
+            import traceback
+            traceback.print_exc()
+            flash("An error occurred while updating the transaction.", "danger")
+            # It's better to redirect to the edit page again on POST failure to show form with errors,
+            # but for simplicity, redirecting to list for now.
+            return redirect(url_for('edit_transaction', txn_id=txn_id)) 
+    
+    # GET request - show edit form
+    try:
+        txn_response = supabase.table('transactions') \
+            .select('''
+                *, 
+                customers:customer_id (id, name), 
+                users:created_by_user_id (first_name, last_name)
+            ''') \
+            .eq('id', txn_id) \
+            .maybe_single() \
+            .execute()
+        
+        if not txn_response.data:
+            flash("Transaction not found.", "danger")
+            return redirect(url_for('transactions'))
+        
+        # Format date for display if needed by template (though template does it now)
+        # txn_response.data['date_formatted'] = datetime.datetime.fromisoformat(txn_response.data['date'].replace('Z', '+00:00')).strftime('%d/%m/%Y %I:%M %p')
+
+        customers_response = supabase.table('customers') \
+            .select('id, name') \
+            .order('name') \
+            .execute()
+        
+        return render_template('edit_transaction.html', 
+                             transaction=txn_response.data,
+                             customers=customers_response.data or [])
+    
+    except Exception as e:
+        print(f"Error fetching transaction data for edit {txn_id}: {type(e).__name__} - {e}")
+        import traceback
+        traceback.print_exc()
+        flash("Could not load transaction data for editing.", "danger")
+        return redirect(url_for('transactions'))
+# app.py
+
+@app.route('/api/transaction/<int:txn_id>/receipt_details')
+@login_required
+def transaction_receipt_details(txn_id):
+    if not check_supabase():
+        return jsonify({"error": "Database connection failed"}), 500
+    try:
+        response = supabase.table('transactions') \
+            .select('''
+                transaction_code,
+                date,
+                total_amount,
+                payment_method,
+                notes,
+                customer:customers ( name ),
+                employee_creator:created_by_user_id ( first_name, last_name ),
+                items:transaction_items ( quantity, price, product:products (name) )
+            ''') \
+            .eq('id', txn_id) \
+            .maybe_single() \
+            .execute()
+
+        if not response.data:
+            return jsonify({"error": "Transaction not found"}), 404
+
+        txn = response.data
+        customer_info = txn.get('customer')
+        customer_name = customer_info['name'] if customer_info else 'Walk-in/N/A'
+        
+        employee_info = txn.get('employee_creator')
+        employee_name = f"{employee_info['first_name']} {employee_info['last_name']}" if employee_info else 'System'
+
+        items_list = []
+        if txn.get('items'):
+            for item_data in txn['items']:
+                product_info = item_data.get('product')
+                items_list.append({
+                    "product_name": product_info['name'] if product_info else "Unknown Item",
+                    "quantity": item_data['quantity'],
+                    "price": item_data['price']
+                })
+        
+        receipt_data = {
+            "transaction_code": txn['transaction_code'],
+            "date": txn['date'], # Will be formatted by JS
+            "total_amount": txn['total_amount'],
+            "payment_method": txn.get('payment_method', 'N/A'),
+            "notes": txn.get('notes', ''),
+            "customer_name": customer_name,
+            "employee_name": employee_name,
+            "items": items_list
+        }
+        return jsonify(receipt_data)
+
+    except Exception as e:
+        print(f"Error fetching receipt details for txn_id {txn_id}: {e}")
+        return jsonify({"error": "Could not load receipt details"}), 500
 # --- ADD EMPLOYEES ROUTE ---
+# app.py
+# ... (other imports)
+
+def generate_transaction_code():
+    # Simple unique code: timestamp + random part
+    return f"TXN-{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:6].upper()}"
+
+# Helper to get current user's DB ID (from 'users' table)
+def get_current_user_db_id_from_session(): # Renamed for clarity
+    auth_user_id = session.get('user', {}).get('id') # This is auth.users.id (UUID)
+    if not auth_user_id or not check_supabase():
+        return None
+    try:
+        # Query your user profile table (e.g., 'users' or 'employees')
+        # to get its integer primary key if that's what created_by_user_id expects
+        user_profile_response = supabase.table('users').select('id').eq('auth_user_id', auth_user_id).maybe_single().execute()
+        if user_profile_response.data:
+            return user_profile_response.data['id'] # This is users.id (int4)
+        return None
+    except Exception as e:
+        print(f"Error fetching user DB ID for auth_id {auth_user_id}: {e}")
+        return None
+
+@app.route('/transactions/add', methods=['GET', 'POST'])
+@login_required
+def add_transaction():
+    if not check_supabase():
+        flash("Database connection failed.", "danger")
+        return redirect(url_for('transactions'))
+
+    if request.method == 'POST':
+        try:
+            customer_id_form = request.form.get('customer_id')
+            payment_method = request.form.get('payment_method')
+            notes = request.form.get('notes')
+            
+            product_ids = request.form.getlist('product_id[]')
+            quantities = request.form.getlist('quantity[]')
+
+            if not product_ids or not any(pid for pid in product_ids): # Check if any product selected
+                flash("Please select at least one product.", "danger")
+                # Need to re-fetch customers and products for the form
+                customers_resp = supabase.table('customers').select('id, name, phone_number').order('name').execute()
+                products_resp = supabase.table('products').select('id, name, price, stock').gt('stock', 0).order('name').execute() # Only show in-stock
+                return render_template('add_transaction.html', 
+                                     customers=customers_resp.data or [], 
+                                     products=products_resp.data or [])
+
+
+            transaction_items_to_insert = []
+            grand_total = 0
+            product_stock_updates = []
+
+            for i, product_id_str in enumerate(product_ids):
+                if not product_id_str: continue # Skip empty product selections
+
+                product_id = int(product_id_str)
+                quantity = int(quantities[i])
+
+                if quantity <= 0:
+                    flash(f"Quantity for a selected product must be positive.", "danger")
+                    # Re-render form (data needed)
+                    customers_resp = supabase.table('customers').select('id, name, phone_number').order('name').execute()
+                    products_resp = supabase.table('products').select('id, name, price, stock').gt('stock', 0).order('name').execute()
+                    return render_template('add_transaction.html', customers=customers_resp.data or [], products=products_resp.data or [])
+
+
+                # Fetch product price and current stock (important to get fresh data)
+                product_info_res = supabase.table('products').select('price, stock, name').eq('id', product_id).maybe_single().execute()
+                if not product_info_res.data:
+                    flash(f"Product with ID {product_id} not found.", "danger")
+                    # Re-render form
+                    customers_resp = supabase.table('customers').select('id, name, phone_number').order('name').execute()
+                    products_resp = supabase.table('products').select('id, name, price, stock').gt('stock', 0).order('name').execute()
+                    return render_template('add_transaction.html', customers=customers_resp.data or [], products=products_resp.data or [])
+
+                product_price = product_info_res.data['price']
+                current_stock = product_info_res.data['stock']
+                product_name = product_info_res.data['name']
+
+                if quantity > current_stock:
+                    flash(f"Not enough stock for '{product_name}'. Available: {current_stock}, Requested: {quantity}.", "danger")
+                    # Re-render form
+                    customers_resp = supabase.table('customers').select('id, name, phone_number').order('name').execute()
+                    products_resp = supabase.table('products').select('id, name, price, stock').gt('stock', 0).order('name').execute()
+                    return render_template('add_transaction.html', customers=customers_resp.data or [], products=products_resp.data or [])
+
+
+                item_total = product_price * quantity
+                grand_total += item_total
+                
+                transaction_items_to_insert.append({
+                    # 'transaction_id' will be set after main transaction insert
+                    'product_id': product_id,
+                    'quantity': quantity,
+                    'price': product_price # Price at the time of transaction
+                })
+                product_stock_updates.append({'id': product_id, 'new_stock': current_stock - quantity})
+
+            # Get current logged-in user's DB ID (from public.users table)
+            created_by_db_user_id = get_current_user_db_id_from_session()
+            if created_by_db_user_id is None:
+                flash("Could not identify processing employee. Please log in again.", "danger")
+                # Re-render form
+                customers_resp = supabase.table('customers').select('id, name, phone_number').order('name').execute()
+                products_resp = supabase.table('products').select('id, name, price, stock').gt('stock', 0).order('name').execute()
+                return render_template('add_transaction.html', customers=customers_resp.data or [], products=products_resp.data or [])
+
+
+            # 1. Insert main transaction record
+            main_transaction_payload = {
+                'transaction_code': generate_transaction_code(),
+                'date': datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                'total_amount': grand_total,
+                'customer_id': int(customer_id_form) if customer_id_form else None,
+                'payment_method': payment_method,
+                'notes': notes,
+                'created_by_user_id': created_by_db_user_id # This is the int4 ID from your users/employees table
+            }
+            
+            inserted_txn_res = supabase.table('transactions').insert(main_transaction_payload).execute()
+
+            if not inserted_txn_res.data or len(inserted_txn_res.data) == 0:
+                flash("Failed to create main transaction record.", "danger")
+                # Re-render form
+                customers_resp = supabase.table('customers').select('id, name, phone_number').order('name').execute()
+                products_resp = supabase.table('products').select('id, name, price, stock').gt('stock', 0).order('name').execute()
+                return render_template('add_transaction.html', customers=customers_resp.data or [], products=products_resp.data or [])
+
+            new_transaction_id = inserted_txn_res.data[0]['id']
+
+            # 2. Insert transaction items
+            for item in transaction_items_to_insert:
+                item['transaction_id'] = new_transaction_id
+            
+            items_insert_res = supabase.table('transaction_items').insert(transaction_items_to_insert).execute()
+            if not items_insert_res.data and len(transaction_items_to_insert) > 0 : # Check if items were expected
+                 # Rollback or log error: items failed to insert.
+                 # For now, just flash a strong warning. Ideally, use DB transactions.
+                flash("Transaction created, but failed to record some items! Please review.", "warning")
+                # Attempt to delete the main transaction record for consistency? Complex without DB transactions.
+                # supabase.table('transactions').delete().eq('id', new_transaction_id).execute()
+
+            # 3. Update product stock (can be done via RPC for atomicity)
+            # For now, individual updates:
+            for stock_update in product_stock_updates:
+                supabase.table('products').update({'stock': stock_update['new_stock']}).eq('id', stock_update['id']).execute()
+                # Add error checking for stock update if needed
+
+            flash(f"Transaction #{inserted_txn_res.data[0]['transaction_code']} created successfully!", "success")
+            return redirect(url_for('transactions'))
+
+        except Exception as e:
+            print(f"Error adding transaction: {type(e).__name__} - {e}")
+            import traceback
+            traceback.print_exc()
+            flash("An error occurred while adding the transaction.", "danger")
+            # Fall through to GET to re-render form with error
+
+    # GET request or POST failed - show the form
+    try:
+        customers_response = supabase.table('customers').select('id, name, phone_number').order('name').execute()
+        # Only show products that are in stock for selection
+        products_response = supabase.table('products').select('id, name, price, stock').gt('stock', 0).order('name').execute()
+    except Exception as e:
+        print(f"Error fetching data for add transaction form: {e}")
+        flash("Could not load data for the transaction form.", "warning")
+        customers_response = {'data': []} # Empty data on error
+        products_response = {'data': []}  # Empty data on error
+
+
+    return render_template('add_transaction.html', 
+                         customers=customers_response.data or [], 
+                         products=products_response.data or [])
+
 @app.route('/employees')
 @login_required
 def employees():
@@ -542,6 +891,25 @@ def employees():
             flash("Could not load employee data due to a server error.", "danger")
         return render_template('employees.html', employees=[]) # Render page with empty list on error
 # --- END OF EMPLOYEES ROUTE ---
+
+
+@app.route('/customers')
+@login_required
+def customers_page(): # Renamed to avoid conflict with any 'customers' variable
+    if not check_supabase():
+        flash("Database connection failed.", "danger")
+        return render_template('customers.html', customers=[])
+    try:
+        response = supabase.table('customers') \
+            .select('id, name, phone_number, email, address, created_at') \
+            .order('name', desc=False) \
+            .execute()
+        
+        return render_template('customers.html', customers=response.data or [])
+    except Exception as e:
+        print(f"Error fetching customers: {e}")
+        flash("Could not load customer data.", "danger")
+        return render_template('customers.html', customers=[])
 
 @app.template_filter('format_datetime')
 def format_datetime_filter(value, format='medium'):
@@ -610,16 +978,13 @@ def users():
         return render_template('users.html', users=[])
 
 
-# =========================================
-# API Routes (Report Generation - Unchanged)
-# =========================================
 @app.route('/api/reports/<period>', methods=['GET'])
 @login_required
 def generate_report_api(period):
     if not check_supabase():
         return jsonify({'error': 'Database connection failed'}), 500
 
-    today = datetime.datetime.now().date()
+    today = datetime.datetime.now(datetime.timezone.utc).date() # Use timezone-aware
     end_date = today
 
     if period == 'daily': start_date = today
@@ -634,83 +999,86 @@ def generate_report_api(period):
     }
     title = title_map.get(period)
 
-    start_datetime = datetime.datetime.combine(start_date, datetime.time.min)
-    end_datetime = datetime.datetime.combine(end_date, datetime.time.max)
+    start_datetime = datetime.datetime.combine(start_date, datetime.time.min, tzinfo=datetime.timezone.utc)
+    end_datetime = datetime.datetime.combine(end_date, datetime.time.max, tzinfo=datetime.timezone.utc)
 
     try:
         transactions_response = supabase.table('transactions') \
-            .select('date, transaction_code, total_amount, customers(name)') \
+            .select('date, transaction_code, total_amount, payment_method, customer:customers(name)') \
             .gte('date', start_datetime.isoformat()) \
             .lte('date', end_datetime.isoformat()) \
             .order('date') \
             .execute()
-        transactions = transactions_response.data if transactions_response.data else []
+        transactions_for_report = transactions_response.data if transactions_response.data else []
 
         buffer = io.BytesIO()
-        p = canvas.Canvas(buffer, pagesize=letter)
+        p_canvas = canvas.Canvas(buffer, pagesize=letter) # Renamed to avoid conflict
         width, height = letter
-        p.setFont('Helvetica-Bold', 16)
-        p.drawString(50, height - 50, "Bash Merchandise Management")
-        p.setFont('Helvetica', 14)
-        p.drawString(50, height - 70, title)
-        p.setFont('Helvetica', 10)
-        p.line(50, height - 80, width - 50, height - 80)
+        p_canvas.setFont('Helvetica-Bold', 16)
+        p_canvas.drawString(50, height - 50, "Bash Merchandise Management")
+        p_canvas.setFont('Helvetica', 14)
+        p_canvas.drawString(50, height - 70, title)
+        p_canvas.setFont('Helvetica', 10)
+        p_canvas.line(50, height - 80, width - 50, height - 80)
 
         y_position = height - 100
-        x_positions = [50, 150, 300, 450] # Adjusted X positions slightly
-        headers = ["Date", "Transaction ID", "Customer", "Amount (UGX)"]
-        p.setFont('Helvetica-Bold', 10)
-        for i, header in enumerate(headers): p.drawString(x_positions[i], y_position, header)
+        # Adjusted X positions for more columns potentially
+        headers = ["Date", "Transaction ID", "Customer", "Payment", "Amount (UGX)"]
+        x_positions = [50, 150, 270, 380, 480] 
+        p_canvas.setFont('Helvetica-Bold', 10)
+        for i, header in enumerate(headers): p_canvas.drawString(x_positions[i], y_position, header)
 
         y_position -= 15
-        p.setFont('Helvetica', 9)
+        p_canvas.setFont('Helvetica', 9)
         total_report_amount = 0
 
-        for txn in transactions:
-            if y_position < 60:
-                p.showPage()
-                p.setFont('Helvetica-Bold', 10)
-                y_position = height - 100
-                for i, header in enumerate(headers): p.drawString(x_positions[i], y_position, header)
+        for txn in transactions_for_report:
+            if y_position < 60: # New page if not enough space
+                p_canvas.showPage()
+                p_canvas.setFont('Helvetica-Bold', 10)
+                y_position = height - 100 # Reset y_position for new page
+                for i, header in enumerate(headers): p_canvas.drawString(x_positions[i], y_position, header)
                 y_position -= 15
-                p.setFont('Helvetica', 9)
+                p_canvas.setFont('Helvetica', 9)
 
             date_str = datetime.datetime.fromisoformat(txn['date'].replace('Z', '+00:00')).strftime('%d/%m/%y %H:%M')
-            txn_id = txn['transaction_code']
-            customer = txn['customers']['name'] if txn['customers'] else 'N/A'
-            amount = txn['total_amount']
-            total_report_amount += amount
+            txn_id_str = txn['transaction_code']
+            customer_info = txn.get('customer')
+            customer_name_str = customer_info['name'] if customer_info else 'N/A'
+            payment_method_str = txn.get('payment_method', 'N/A')
+            amount_val = txn['total_amount']
+            total_report_amount += amount_val
 
-            p.drawString(x_positions[0], y_position, date_str)
-            p.drawString(x_positions[1], y_position, txn_id)
-            p.drawString(x_positions[2], y_position, customer)
-            # Ensure format_ugx is available or use direct f-string formatting
-            try: amount_str = f"{float(amount):,.0f}"
-            except: amount_str = "Invalid"
-            p.drawRightString(x_positions[3] + 100, y_position, amount_str) # Right align amount
+            p_canvas.drawString(x_positions[0], y_position, date_str)
+            p_canvas.drawString(x_positions[1], y_position, txn_id_str)
+            p_canvas.drawString(x_positions[2], y_position, customer_name_str)
+            p_canvas.drawString(x_positions[3], y_position, payment_method_str)
+            
+            try: amount_str_pdf = f"{float(amount_val):,.0f}"
+            except: amount_str_pdf = "Invalid"
+            p_canvas.drawRightString(x_positions[4] + 70, y_position, amount_str_pdf) # Right align amount
 
             y_position -= 15
 
-        p.line(50, y_position + 5, width - 50, y_position + 5)
+        p_canvas.line(50, y_position + 5, width - 50, y_position + 5)
         y_position -= 10
-        p.setFont('Helvetica-Bold', 10)
-        summary_x_start = x_positions[2] # Align summary labels
-        p.drawString(summary_x_start, y_position, "Total Transactions:")
-        p.drawRightString(x_positions[3] + 100, y_position, str(len(transactions)))
+        p_canvas.setFont('Helvetica-Bold', 10)
+        summary_x_start = x_positions[3] # Align summary labels under "Payment"
+        p_canvas.drawString(summary_x_start, y_position, "Total Transactions:")
+        p_canvas.drawRightString(x_positions[4] + 70, y_position, str(len(transactions_for_report)))
         y_position -= 15
-        p.drawString(summary_x_start, y_position, "Total Amount (UGX):")
-        try: total_amount_str = f"{float(total_report_amount):,.0f}"
-        except: total_amount_str = "Invalid"
-        p.drawRightString(x_positions[3] + 100, y_position, total_amount_str)
+        p_canvas.drawString(summary_x_start, y_position, "Total Amount (UGX):")
+        try: total_amount_str_pdf = f"{float(total_report_amount):,.0f}"
+        except: total_amount_str_pdf = "Invalid"
+        p_canvas.drawRightString(x_positions[4] + 70, y_position, total_amount_str_pdf)
 
-        p.save()
+        p_canvas.save()
         buffer.seek(0)
         download_filename = f"BashMerch_{period}_report_{today.strftime('%Y%m%d')}.pdf"
         return send_file(buffer, mimetype='application/pdf', as_attachment=True, download_name=download_filename)
 
     except Exception as e:
-        print(f"Error generating {period} report: {e}")
-        # Consider logging the full traceback here for debugging
+        print(f"Error generating {period} report: {type(e).__name__} - {e}")
         import traceback
         traceback.print_exc()
         return jsonify({'error': f'Failed to generate report: {str(e)}'}), 500

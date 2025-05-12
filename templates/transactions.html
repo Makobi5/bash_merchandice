@@ -1,0 +1,259 @@
+{% extends 'base.html' %}
+
+{% block title %}Transactions{% endblock %}
+
+{% block styles %}
+<style>
+    .transactions-container {
+        margin-top: 20px;
+    }
+    .transaction-actions {
+        display: flex;
+        gap: 5px; /* Reduced gap slightly */
+        align-items: center; /* Align buttons vertically */
+    }
+    .search-filters {
+        background: white;
+        padding: 20px;
+        border-radius: 8px;
+        margin-bottom: 20px;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+    }
+    /* ... (rest of your existing styles for receipt modal are fine) ... */
+    .receipt-modal .modal-body { padding: 20px; }
+    .receipt-content { font-family: 'Courier New', monospace; max-width: 400px; margin: 0 auto; }
+    .receipt-header, .receipt-footer { text-align: center; margin: 10px 0; }
+    .receipt-items { margin: 15px 0; width: 100%; border-collapse: collapse; } /* Added collapse */
+    .receipt-items th, .receipt-items td { border-bottom: 1px dashed #ccc; padding: 5px 2px; text-align: left; }
+    .receipt-items th:nth-child(2), .receipt-items td:nth-child(2) { text-align: center; } /* Qty center */
+    .receipt-items th:last-child, .receipt-items td:last-child { text-align: right; } /* Total right */
+    .receipt-total { border-top: 1px dashed #000; margin-top: 10px; padding-top: 10px; font-weight: bold; }
+
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="transactions-container">
+    <div class="search-filters">
+        <form class="row g-3" id="transactionFiltersForm">
+            <div class="col-md-3">
+                <label for="startDate" class="form-label">From Date</label>
+                <input type="date" class="form-control" id="startDate" name="start_date">
+            </div>
+            <div class="col-md-3">
+                <label for="endDate" class="form-label">To Date</label>
+                <input type="date" class="form-control" id="endDate" name="end_date">
+            </div>
+            <div class="col-md-3">
+                <label for="searchCustomer" class="form-label">Customer Name</label>
+                <input type="text" class="form-control" id="searchCustomer" name="customer_name_search" placeholder="Search customer...">
+            </div>
+            <div class="col-md-3 d-flex align-items-end">
+                <button type="submit" class="btn btn-primary w-100" id="applyFiltersBtn">Apply Filters</button>
+            </div>
+        </form>
+    </div>
+
+    <div class="table-responsive">
+        <table class="table table-striped table-hover">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Date</th>
+                    <th>Customer</th>
+                    <th>Processed By</th> <!-- Renamed from Employee for clarity -->
+                    <th>Payment Method</th>
+                    <th class="text-end">Total</th>
+                    <th class="text-center">Actions</th>
+                </tr>
+            </thead>
+            <tbody id="transactionsTableBody"> {# For dynamic updates if you implement client-side filtering #}
+                {% if transactions %}
+                    {% for txn in transactions %}
+                    <tr>
+                        <td>{{ txn.transaction_code }}</td>
+                        <td>{{ txn.date }}</td>
+                        <td>{{ txn.customer_name }}</td>
+                        <td>{{ txn.employee_name }}</td>
+                        <td>{{ txn.payment_method }}</td>
+                        <td class="text-end">{{ format_ugx(txn.total) }}</td>
+                        <td class="transaction-actions text-center">
+                            <button class="btn btn-sm btn-info view-receipt-btn" 
+                                    data-txn-id="{{ txn.id }}" 
+                                    title="View Receipt"> 
+                                <i class="bi bi-receipt"></i> {# Using Bootstrap Icons if available #}
+                            </button>
+                            {% if user and user.role == 'admin' %} {# Check if user object exists #}
+                            <a href="{{ url_for('edit_transaction', txn_id=txn.id) }}" class="btn btn-sm btn-secondary" title="Edit Transaction">
+                                <i class="bi bi-pencil-square"></i>
+                            </a>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                {% else %}
+                <tr>
+                    <td colspan="7" class="text-center">No transactions found</td>
+                </tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Receipt Modal -->
+<div class="modal fade" id="receiptModal" tabindex="-1" aria-labelledby="receiptModalLabel" aria-hidden="true">
+    <div class="modal-dialog"> <!-- modal-sm or modal-md might be better for receipt -->
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="receiptModalLabel">Transaction Receipt</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body receipt-modal">
+                <div class="receipt-content" id="receiptContentDiv">
+                    <!-- Receipt content will be dynamically generated -->
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+                <button type="button" class="btn btn-primary" id="printReceiptBtn"><i class="bi bi-printer"></i> Print Receipt</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const receiptModal = new bootstrap.Modal(document.getElementById('receiptModal'));
+
+    document.querySelectorAll('.view-receipt-btn').forEach(button => {
+        button.addEventListener('click', async function() {
+            const transactionId = this.dataset.txnId;
+            try {
+                const response = await fetch(`/api/transaction/${transactionId}/receipt_details`);
+                if (!response.ok) {
+                    // Try to get error message from response if possible
+                    let errorMsg = 'Could not load receipt details.';
+                    try {
+                        const errorData = await response.json();
+                        if (errorData && errorData.error) {
+                            errorMsg = errorData.error;
+                        }
+                    } catch (e) { /* Ignore if response is not JSON */ }
+                    alert(errorMsg);
+                    return;
+                }
+                const txnDetails = await response.json();
+
+                let receiptHtml = `
+                    <div class="receipt-header">
+                        <h4>Bash Merchandise</h4>
+                        <p style="font-size: 0.9em;">Your Town, Your Street</p>
+                        <p style="font-size: 0.9em;">Tel: 123-456-7890</p>
+                        <hr style="border-top: 1px dashed #000;">
+                        <p><strong>RECEIPT</strong></p>
+                    </div>
+                    <div class="receipt-details" style="font-size: 0.9em;">
+                        <p><strong>Receipt #:</strong> ${txnDetails.transaction_code}</p>
+                        <p><strong>Date:</strong> ${new Date(txnDetails.date).toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true })}</p>
+                        <p><strong>Customer:</strong> ${txnDetails.customer_name || 'Walk-in Customer'}</p>
+                        <p><strong>Served by:</strong> ${txnDetails.employee_name || 'System'}</p>
+                        <p><strong>Payment:</strong> ${txnDetails.payment_method || 'N/A'}</p>
+                    </div>
+                    <table class="receipt-items">
+                        <thead>
+                            <tr>
+                                <th style="width:50%;">Item</th>
+                                <th style="text-align:center;">Qty</th>
+                                <th style="text-align:right;">Price</th>
+                                <th style="text-align:right;">Total</th>
+                            </tr>
+                        </thead>
+                        <tbody>`;
+                
+                let subTotalForReceipt = 0; // Use a different variable name if subTotal is used elsewhere
+                if (txnDetails.items && txnDetails.items.length > 0) {
+                    txnDetails.items.forEach(item => {
+                        const itemTotal = item.quantity * item.price;
+                        subTotalForReceipt += itemTotal;
+                        receiptHtml += `
+                            <tr>
+                                <td>${item.product_name}</td>
+                                <td style="text-align:center;">${item.quantity}</td>
+                                <td style="text-align:right;">${item.price.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 0})}</td>
+                                <td style="text-align:right;">${itemTotal.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 0})}</td>
+                            </tr>`;
+                    });
+                } else {
+                    receiptHtml += '<tr><td colspan="4" style="text-align:center;">No items found for this transaction.</td></tr>';
+                }
+                
+                receiptHtml += `
+                        </tbody>
+                    </table>
+                    <div class="receipt-total text-end" style="font-size: 1.1em;">
+                        <p><strong>TOTAL: UGX ${txnDetails.total_amount.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 0})}</strong></p>
+                    </div>
+                    ${txnDetails.notes ? `<div style="font-size:0.8em; margin-top:10px; border-top: 1px dashed #ccc; padding-top:5px;"><strong>Notes:</strong> ${txnDetails.notes}</div>` : ''}
+                    <div class="receipt-footer" style="margin-top:15px;">
+                        <p style="font-size: 0.9em;">Thank you for your patronage!</p>
+                        <p style="font-size: 0.8em;">Powered by Bash Merchandise Manager</p>
+                    </div>`;
+                
+                document.getElementById('receiptContentDiv').innerHTML = receiptHtml;
+                receiptModal.show();
+            } catch (error) {
+                console.error("Error fetching or processing receipt details:", error);
+                alert("Could not load receipt details. Please check console for errors and try again.");
+            }
+        });
+    }); // End of forEach for '.view-receipt-btn'
+
+    const printButton = document.getElementById('printReceiptBtn');
+    if (printButton) { // Ensure button exists before adding listener
+        printButton.addEventListener('click', function() {
+            const receiptContent = document.getElementById('receiptContentDiv').innerHTML;
+            const printWindow = window.open('', '_blank', 'height=700,width=500'); 
+            printWindow.document.write('<html><head><title>Print Receipt</title>');
+            printWindow.document.write('<style> body { font-family: "Courier New", monospace; margin: 15px; font-size: 10pt; } table { width: 100%; border-collapse: collapse; margin: 10px 0; } td, th { padding: 3px 1px; border-bottom: 1px dashed #ccc; text-align: left; } th:nth-child(2), td:nth-child(2) { text-align: center; } th:last-child, td:last-child { text-align: right; } .receipt-header, .receipt-footer { text-align: center; margin-bottom: 10px;} .receipt-total { text-align: right; font-weight: bold; margin-top:10px; border-top: 1px dashed #000; padding-top:5px;} hr {border:0; border-top: 1px dashed #000;} @media print { body { margin: 0; } .no-print { display: none; } } </style>');
+            printWindow.document.write('</head><body>');
+            printWindow.document.write(receiptContent);
+            printWindow.document.write('</body></html>');
+            printWindow.document.close();
+            printWindow.focus();
+            setTimeout(() => {
+                try {
+                    printWindow.print();
+                } catch (e) {
+                    console.error("Print failed:", e);
+                    alert("Printing failed. Please try again or use browser's print option.");
+                } finally {
+                    // Close window only if print was successful or after a delay if print dialog blocks
+                    // For simplicity, or if the user cancels, we might still want to close it.
+                    // setTimeout(() => { printWindow.close(); }, 1000); // Give a bit more time
+                }
+            }, 300); // Increased timeout slightly
+        });
+    }
+
+    // const applyFiltersButton = document.getElementById('applyFiltersBtn');
+    // if (applyFiltersButton) {
+    //     applyFiltersButton.addEventListener('click', function() {
+    //         const startDate = document.getElementById('startDate').value;
+    //         const endDate = document.getElementById('endDate').value;
+    //         const customerName = document.getElementById('searchCustomer').value;
+    //         console.log("Filtering with:", { startDate, endDate, customerName });
+    //         // Example: Construct URL and redirect for server-side filtering
+    //         const queryParams = new URLSearchParams();
+    //         if (startDate) queryParams.append('start_date', startDate);
+    //         if (endDate) queryParams.append('end_date', endDate);
+    //         if (customerName) queryParams.append('customer_search', customerName);
+    //         window.location.href = `/transactions?${queryParams.toString()}`;
+    //         // Or use Fetch API to load filtered data into the table body
+    //     });
+    // }
+
+}); // This is the closing brace and parenthesis for document.addEventListener('DOMContentLoaded', ...)
+</script>
+{% endblock %}

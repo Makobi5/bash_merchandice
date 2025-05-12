@@ -1,0 +1,69 @@
+{% extends 'base.html' %}
+
+{% block title %}Edit Transaction{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="card">
+        <div class="card-header">
+             <h2>Edit Transaction #{{ transaction.transaction_code }}</h2>
+        </div>
+        <div class="card-body">
+            <form method="POST">
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <label for="customer_id" class="form-label">Customer</label>
+                        <select class="form-select" id="customer_id" name="customer_id">
+                            <option value="">-- Walk-in Customer --</option>
+                            {% for customer in customers %}
+                            <option value="{{ customer.id }}" 
+                                {% if transaction.customers and customer.id == transaction.customers.id %}selected{% endif %}> 
+                                {# Corrected: Access customer ID from the nested 'customers' object if it exists #}
+                                {{ customer.name }} (ID: {{ customer.id }})
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <label for="payment_method" class="form-label">Payment Method</label>
+                        <select class="form-select" id="payment_method" name="payment_method" required>
+                            <option value="Cash" {% if transaction.payment_method == 'Cash' %}selected{% endif %}>Cash</option>
+                            <option value="Mobile Money" {% if transaction.payment_method == 'Mobile Money' %}selected{% endif %}>Mobile Money</option>
+                            <option value="Card" {% if transaction.payment_method == 'Card' %}selected{% endif %}>Card</option>
+                            <option value="Bank Transfer" {% if transaction.payment_method == 'Bank Transfer' %}selected{% endif %}>Bank Transfer</option>
+                            <option value="Other" {% if transaction.payment_method == 'Other' %}selected{% endif %}>Other</option> {# Added Other #}
+                        </select>
+                    </div>
+                </div>
+                
+                <div class="mb-3">
+                    <label for="notes" class="form-label">Notes / Remarks</label>
+                    <textarea class="form-control" id="notes" name="notes" rows="3">{{ transaction.notes or '' }}</textarea>
+                </div>
+                
+                <hr>
+
+                <div class="mb-3">
+                    <h5>Transaction Summary</h5>
+                    <p><strong>Transaction Date:</strong> {{ transaction.date | format_datetime('%d %b %Y %I:%M %p') if transaction.date else 'N/A' }}</p>
+                    <p><strong>Processed by:</strong> 
+                        {% if transaction.users %} {# Assuming 'users' is the alias for created_by_user_id join #}
+                            {{ transaction.users.first_name }} {{ transaction.users.last_name }}
+                        {% elif transaction.employee_creator %} {# Fallback if alias is employee_creator #}
+                            {{ transaction.employee_creator.first_name }} {{ transaction.employee_creator.last_name }}
+                        {% else %}
+                            System/Unknown
+                        {% endif %}
+                    </p>
+                    <p><strong>Total Amount:</strong> {{ format_ugx(transaction.total_amount) }}</p>
+                </div>
+                
+                <div class="mt-4">
+                    <button type="submit" class="btn btn-primary">Save Changes</button>
+                    <a href="{{ url_for('transactions') }}" class="btn btn-outline-secondary">Cancel</a>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

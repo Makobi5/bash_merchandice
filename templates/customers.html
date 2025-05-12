@@ -1,0 +1,58 @@
+{# templates/customers.html #}
+{% extends 'base.html' %}
+
+{% block title %}Customers{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h1>Customers</h1>
+        {# Optional: Add button to create customer directly #}
+        {# <a href="{{ url_for('add_customer') }}" class="btn btn-primary"><i class="bi bi-person-plus-fill"></i> Add Customer</a> #}
+    </div>
+
+    <div class="card">
+        <div class="card-header">
+            Customer List
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover mb-0">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Name</th>
+                            <th>Phone Number</th>
+                            <th>Email</th>
+                            <th>Address</th>
+                            <th>First Seen</th> {# created_at #}
+                            {# <th>Actions</th> #}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% if customers %}
+                            {% for customer in customers %}
+                            <tr>
+                                <td>{{ customer.id }}</td>
+                                <td>{{ customer.name }}</td>
+                                <td>{{ customer.phone_number or 'N/A' }}</td>
+                                <td>{{ customer.email or 'N/A' }}</td>
+                                <td>{{ customer.address or 'N/A' }}</td>
+                                <td>{{ customer.created_at | format_datetime('%d %b %Y') if customer.created_at else 'N/A' }}</td>
+                                {# <td>
+                                    <a href="{{ url_for('edit_customer', customer_id=customer.id) }}" class="btn btn-sm btn-outline-secondary">Edit</a>
+                                </td> #}
+                            </tr>
+                            {% endfor %}
+                        {% else %}
+                            <tr>
+                                <td colspan="6" class="text-center">No customers found.</td>
+                            </tr>
+                        {% endif %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
