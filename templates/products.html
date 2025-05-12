@@ -20,9 +20,18 @@
                 <option value="">All Categories</option>
                 <option value="Electronics">Electronics</option>
                 <option value="Clothing">Clothing</option>
-                <option value="Office">Office</option>
+                <option value="Groceries">Groceries</option>
+                <option value="Home & Kitchen">Home & Kitchen</option>
+                <option value="Beauty & Personal Care">Beauty & Personal Care</option>
+                <option value="Stationery">Stationery</option>
+                <option value="Mobile Phones & Accessories">Mobile Phones & Accessories</option>
+                <option value="Agriculture">Agriculture</option>
+                <option value="Hardware & Tools">Hardware & Tools</option>
+                <option value="Auto Parts">Auto Parts</option>
+                <option value="Traditional Crafts">Traditional Crafts</option>
+                <option value="Baby Products">Baby Products</option>
+                <option value="Health & Medicine">Health & Medicine</option>
                 <option value="Books">Books</option>
-                <!-- Add other categories as needed -->
             </select>
         </div>
     </div>
@@ -95,16 +104,25 @@
                                 <option value="">Select Category</option>
                                 <option value="Electronics">Electronics</option>
                                 <option value="Clothing">Clothing</option>
-                                <option value="Office">Office</option>
+                                <option value="Groceries">Groceries</option>
+                                <option value="Home & Kitchen">Home & Kitchen</option>
+                                <option value="Beauty & Personal Care">Beauty & Personal Care</option>
+                                <option value="Stationery">Stationery</option>
+                                <option value="Mobile Phones & Accessories">Mobile Phones & Accessories</option>
+                                <option value="Agriculture">Agriculture</option>
+                                <option value="Hardware & Tools">Hardware & Tools</option>
+                                <option value="Auto Parts">Auto Parts</option>
+                                <option value="Traditional Crafts">Traditional Crafts</option>
+                                <option value="Baby Products">Baby Products</option>
+                                <option value="Health & Medicine">Health & Medicine</option>
                                 <option value="Books">Books</option>
-                                <!-- Add other categories as needed -->
                             </select>
                         </div>
                         <div class="col-md-6">
                             <label for="productPrice" class="form-label">Unit Price <span class="text-danger">*</span></label>
                             <div class="input-group">
-                                <span class="input-group-text">$</span>
-                                <input type="number" class="form-control" id="productPrice" name="price" step="0.01" min="0" required>
+                                <span class="input-group-text">UGX</span>
+                                <input type="number" class="form-control" id="productPrice" name="price" step="1" min="0" required>
                             </div>
                         </div>
                     </div>
@@ -252,6 +270,12 @@ document.addEventListener('DOMContentLoaded', function() {
                 throw new Error(errorData.error || 'Server error');
             }
             allProducts = await response.json();
+            
+            // Reset product IDs to ensure they always start from 1
+            allProducts = allProducts.map((product, index) => {
+                return {...product, display_id: index + 1};
+            });
+            
             renderProducts();
         } catch (error) {
             console.error('Error fetching products:', error);
@@ -270,9 +294,18 @@ document.addEventListener('DOMContentLoaded', function() {
             const categoryMatch = category === '' || product.category === category;
             return (nameMatch || skuMatch) && categoryMatch;
         });
-        // Add sorting if needed, e.g., by name or ID
-        filtered.sort((a, b) => a.id - b.id); // Sort by ID ascending
+        
+        // Sort by display_id (sequential ID) ascending
+        filtered.sort((a, b) => a.display_id - b.display_id);
         return filtered;
+    }
+
+    function formatCurrency(amount) {
+        // Format as UGX currency with comma separators for thousands
+        return new Intl.NumberFormat('en-UG', {
+            minimumFractionDigits: 0,
+            maximumFractionDigits: 0
+        }).format(amount);
     }
 
     function renderProducts() {
@@ -300,13 +333,13 @@ document.addEventListener('DOMContentLoaded', function() {
             const imageUrl = product.image_url || '/static/images/placeholder_product.png'; // Ensure you have this placeholder
 
             const row = `
-                <tr data-id="${product.id}">
-                    <td>${product.id}</td>
+                <tr data-id="${product.id}" data-display-id="${product.display_id}">
+                    <td>${product.display_id}</td>
                     <td><img src="${imageUrl}" alt="${product.name}" class="product-thumbnail"></td>
                     <td>${product.name}</td>
                     <td>${product.sku || 'N/A'}</td>
                     <td>${product.category}</td>
-                    <td class="text-end">$${parseFloat(product.price).toFixed(2)}</td>
+                    <td class="text-end">UGX ${formatCurrency(product.price)}</td>
                     <td class="text-center ${stockClass}">${product.stock}</td>
                     <td>${statusBadge}</td>
                     <td class="text-end">
@@ -374,7 +407,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     const errorData = await response.json().catch(() => ({ error: 'Failed to delete product' }));
                     throw new Error(errorData.error || 'Server error');
                 }
-                await fetchProducts(); // Refresh list
+                await fetchProducts(); // Refresh list - this will reassign sequential IDs
                 showSuccessToast('Product successfully deleted!');
             } catch (error) {
                 console.error('Error deleting product:', error);
@@ -417,7 +450,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
             // const savedProduct = await response.json(); // Contains the created/updated product
 
-            await fetchProducts(); // Refresh list with latest data
+            await fetchProducts(); // Refresh list with latest data and reassign sequential IDs
             addProductModal.hide();
             showSuccessToast(currentProductId ? 'Product successfully updated!' : 'Product successfully added!');
             
