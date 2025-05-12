@@ -1,3 +1,4 @@
+{# templates/transactions.html #}
 {% extends 'base.html' %}
 
 {% block title %}Transactions{% endblock %}
@@ -9,8 +10,9 @@
     }
     .transaction-actions {
         display: flex;
-        gap: 5px; /* Reduced gap slightly */
-        align-items: center; /* Align buttons vertically */
+        gap: 5px;
+        align-items: center;
+        justify-content: center; /* Center actions */
     }
     .search-filters {
         background: white;
@@ -19,37 +21,50 @@
         margin-bottom: 20px;
         box-shadow: 0 2px 10px rgba(0,0,0,0.05);
     }
-    /* ... (rest of your existing styles for receipt modal are fine) ... */
     .receipt-modal .modal-body { padding: 20px; }
-    .receipt-content { font-family: 'Courier New', monospace; max-width: 400px; margin: 0 auto; }
+    .receipt-content { font-family: "Courier New", Courier, monospace; max-width: 420px; margin: 0 auto; font-size: 10pt; line-height: 1.4; }
     .receipt-header, .receipt-footer { text-align: center; margin: 10px 0; }
-    .receipt-items { margin: 15px 0; width: 100%; border-collapse: collapse; } /* Added collapse */
-    .receipt-items th, .receipt-items td { border-bottom: 1px dashed #ccc; padding: 5px 2px; text-align: left; }
+    .receipt-header h4 { margin: 2px 0; font-size: 14pt;}
+    .receipt-header p { margin: 1px 0; font-size: 9pt;}
+    .receipt-details p { margin: 3px 0; font-size: 9pt;}
+    .receipt-items { margin: 15px 0; width: 100%; border-collapse: collapse; }
+    .receipt-items th, .receipt-items td { border-bottom: 1px dashed #ccc; padding: 4px 2px; text-align: left; font-size: 9pt;}
+    .receipt-items th { font-weight: bold; border-bottom: 1px solid #555; }
     .receipt-items th:nth-child(2), .receipt-items td:nth-child(2) { text-align: center; } /* Qty center */
+    .receipt-items th:nth-child(3), .receipt-items td:nth-child(3) { text-align: right; } /* Price right */
     .receipt-items th:last-child, .receipt-items td:last-child { text-align: right; } /* Total right */
-    .receipt-total { border-top: 1px dashed #000; margin-top: 10px; padding-top: 10px; font-weight: bold; }
-
+    .receipt-total { border-top: 1px dashed #000; margin-top: 10px; padding-top: 10px; font-weight: bold; font-size: 11pt; }
+    hr.receipt-hr { border:0; border-top: 1px dashed #000; margin: 5px 0;}
 </style>
 {% endblock %}
 
 {% block content %}
 <div class="transactions-container">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h1>Transactions</h1>
+        <a href="{{ url_for('add_transaction') }}" class="btn btn-success">
+            <i class="bi bi-plus-circle-fill"></i> Add New Transaction
+        </a>
+    </div>
+
     <div class="search-filters">
-        <form class="row g-3" id="transactionFiltersForm">
+        <form class="row g-3" id="transactionFiltersForm" method="GET" action="{{ url_for('transactions') }}">
             <div class="col-md-3">
                 <label for="startDate" class="form-label">From Date</label>
-                <input type="date" class="form-control" id="startDate" name="start_date">
+                <input type="date" class="form-control form-control-sm" id="startDate" name="start_date" value="{{ start_date_filter or '' }}">
             </div>
             <div class="col-md-3">
                 <label for="endDate" class="form-label">To Date</label>
-                <input type="date" class="form-control" id="endDate" name="end_date">
+                <input type="date" class="form-control form-control-sm" id="endDate" name="end_date" value="{{ end_date_filter or '' }}">
             </div>
-            <div class="col-md-3">
-                <label for="searchCustomer" class="form-label">Customer Name</label>
-                <input type="text" class="form-control" id="searchCustomer" name="customer_name_search" placeholder="Search customer...">
+            <div class="col-md-4"> {# Increased width for customer search #}
+                <label for="searchCustomer" class="form-label">Customer Name / Txn Code</label>
+                <input type="text" class="form-control form-control-sm" id="searchCustomer" name="search_term" placeholder="Search..." value="{{ search_term_filter or '' }}">
             </div>
-            <div class="col-md-3 d-flex align-items-end">
-                <button type="submit" class="btn btn-primary w-100" id="applyFiltersBtn">Apply Filters</button>
+            <div class="col-md-2 d-flex align-items-end"> {# Adjusted width #}
+                <button type="submit" class="btn btn-primary btn-sm w-100" id="applyFiltersBtn">
+                    <i class="bi bi-funnel-fill"></i> Apply Filters
+                </button>
             </div>
         </form>
     </div>
@@ -61,13 +76,13 @@
                     <th>ID</th>
                     <th>Date</th>
                     <th>Customer</th>
-                    <th>Processed By</th> <!-- Renamed from Employee for clarity -->
+                    <th>Processed By</th>
                     <th>Payment Method</th>
                     <th class="text-end">Total</th>
                     <th class="text-center">Actions</th>
                 </tr>
             </thead>
-            <tbody id="transactionsTableBody"> {# For dynamic updates if you implement client-side filtering #}
+            <tbody id="transactionsTableBody">
                 {% if transactions %}
                     {% for txn in transactions %}
                     <tr>
@@ -81,9 +96,9 @@
                             <button class="btn btn-sm btn-info view-receipt-btn" 
                                     data-txn-id="{{ txn.id }}" 
                                     title="View Receipt"> 
-                                <i class="bi bi-receipt"></i> {# Using Bootstrap Icons if available #}
+                                <i class="bi bi-receipt"></i>
                             </button>
-                            {% if user and user.role == 'admin' %} {# Check if user object exists #}
+                            {% if user and user.role == 'admin' %}
                             <a href="{{ url_for('edit_transaction', txn_id=txn.id) }}" class="btn btn-sm btn-secondary" title="Edit Transaction">
                                 <i class="bi bi-pencil-square"></i>
                             </a>
@@ -93,7 +108,7 @@
                     {% endfor %}
                 {% else %}
                 <tr>
-                    <td colspan="7" class="text-center">No transactions found</td>
+                    <td colspan="7" class="text-center">No transactions found matching your criteria.</td>
                 </tr>
                 {% endif %}
             </tbody>
@@ -103,7 +118,7 @@
 
 <!-- Receipt Modal -->
 <div class="modal fade" id="receiptModal" tabindex="-1" aria-labelledby="receiptModalLabel" aria-hidden="true">
-    <div class="modal-dialog"> <!-- modal-sm or modal-md might be better for receipt -->
+    <div class="modal-dialog modal-sm"> {# Using modal-sm for a typical receipt width #}
         <div class="modal-content">
             <div class="modal-header">
                 <h5 class="modal-title" id="receiptModalLabel">Transaction Receipt</h5>
@@ -116,12 +131,13 @@
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
-                <button type="button" class="btn btn-primary" id="printReceiptBtn"><i class="bi bi-printer"></i> Print Receipt</button>
+                <button type="button" class="btn btn-primary" id="printReceiptBtn"><i class="bi bi-printer-fill"></i> Print Receipt</button>
             </div>
         </div>
     </div>
 </div>
 {% endblock %}
+
 {% block scripts %}
 <script>
 document.addEventListener('DOMContentLoaded', function() {
@@ -133,14 +149,8 @@ document.addEventListener('DOMContentLoaded', function() {
             try {
                 const response = await fetch(`/api/transaction/${transactionId}/receipt_details`);
                 if (!response.ok) {
-                    // Try to get error message from response if possible
                     let errorMsg = 'Could not load receipt details.';
-                    try {
-                        const errorData = await response.json();
-                        if (errorData && errorData.error) {
-                            errorMsg = errorData.error;
-                        }
-                    } catch (e) { /* Ignore if response is not JSON */ }
+                    try { const errorData = await response.json(); if (errorData && errorData.error) { errorMsg = errorData.error; } } catch (e) {}
                     alert(errorMsg);
                     return;
                 }
@@ -149,12 +159,12 @@ document.addEventListener('DOMContentLoaded', function() {
                 let receiptHtml = `
                     <div class="receipt-header">
                         <h4>Bash Merchandise</h4>
-                        <p style="font-size: 0.9em;">Your Town, Your Street</p>
-                        <p style="font-size: 0.9em;">Tel: 123-456-7890</p>
-                        <hr style="border-top: 1px dashed #000;">
+                        <p>Your Town, Your Street</p>
+                        <p>Tel: 123-456-7890</p>
+                        <hr class="receipt-hr">
                         <p><strong>RECEIPT</strong></p>
                     </div>
-                    <div class="receipt-details" style="font-size: 0.9em;">
+                    <div class="receipt-details">
                         <p><strong>Receipt #:</strong> ${txnDetails.transaction_code}</p>
                         <p><strong>Date:</strong> ${new Date(txnDetails.date).toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true })}</p>
                         <p><strong>Customer:</strong> ${txnDetails.customer_name || 'Walk-in Customer'}</p>
@@ -167,16 +177,14 @@ document.addEventListener('DOMContentLoaded', function() {
                                 <th style="width:50%;">Item</th>
                                 <th style="text-align:center;">Qty</th>
                                 <th style="text-align:right;">Price</th>
-                                <th style="text-align:right;">Total</th>
+                                <th style="text-align:right;">Subtotal</th>
                             </tr>
                         </thead>
                         <tbody>`;
                 
-                let subTotalForReceipt = 0; // Use a different variable name if subTotal is used elsewhere
                 if (txnDetails.items && txnDetails.items.length > 0) {
                     txnDetails.items.forEach(item => {
                         const itemTotal = item.quantity * item.price;
-                        subTotalForReceipt += itemTotal;
                         receiptHtml += `
                             <tr>
                                 <td>${item.product_name}</td>
@@ -186,18 +194,18 @@ document.addEventListener('DOMContentLoaded', function() {
                             </tr>`;
                     });
                 } else {
-                    receiptHtml += '<tr><td colspan="4" style="text-align:center;">No items found for this transaction.</td></tr>';
+                    receiptHtml += '<tr><td colspan="4" style="text-align:center;">No items recorded for this transaction.</td></tr>';
                 }
                 
                 receiptHtml += `
                         </tbody>
                     </table>
-                    <div class="receipt-total text-end" style="font-size: 1.1em;">
+                    <div class="receipt-total text-end">
                         <p><strong>TOTAL: UGX ${txnDetails.total_amount.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 0})}</strong></p>
                     </div>
-                    ${txnDetails.notes ? `<div style="font-size:0.8em; margin-top:10px; border-top: 1px dashed #ccc; padding-top:5px;"><strong>Notes:</strong> ${txnDetails.notes}</div>` : ''}
+                    ${txnDetails.notes ? `<div style="font-size:0.8em; margin-top:10px; border-top: 1px dashed #ccc; padding-top:5px;"><strong>Notes:</strong> ${txnDetails.notes.replace(/\n/g, '<br>')}</div>` : ''}
                     <div class="receipt-footer" style="margin-top:15px;">
-                        <p style="font-size: 0.9em;">Thank you for your patronage!</p>
+                        <p>Thank you for your patronage!</p>
                         <p style="font-size: 0.8em;">Powered by Bash Merchandise Manager</p>
                     </div>`;
                 
@@ -205,55 +213,62 @@ document.addEventListener('DOMContentLoaded', function() {
                 receiptModal.show();
             } catch (error) {
                 console.error("Error fetching or processing receipt details:", error);
-                alert("Could not load receipt details. Please check console for errors and try again.");
+                alert("Could not load receipt details. Please check console and try again.");
             }
         });
-    }); // End of forEach for '.view-receipt-btn'
+    }); 
 
     const printButton = document.getElementById('printReceiptBtn');
-    if (printButton) { // Ensure button exists before adding listener
+    if (printButton) { 
         printButton.addEventListener('click', function() {
-            const receiptContent = document.getElementById('receiptContentDiv').innerHTML;
-            const printWindow = window.open('', '_blank', 'height=700,width=500'); 
+            const receiptContentHTML = document.getElementById('receiptContentDiv').innerHTML;
+            const printWindow = window.open('', '_blank', 'height=700,width=450'); 
             printWindow.document.write('<html><head><title>Print Receipt</title>');
-            printWindow.document.write('<style> body { font-family: "Courier New", monospace; margin: 15px; font-size: 10pt; } table { width: 100%; border-collapse: collapse; margin: 10px 0; } td, th { padding: 3px 1px; border-bottom: 1px dashed #ccc; text-align: left; } th:nth-child(2), td:nth-child(2) { text-align: center; } th:last-child, td:last-child { text-align: right; } .receipt-header, .receipt-footer { text-align: center; margin-bottom: 10px;} .receipt-total { text-align: right; font-weight: bold; margin-top:10px; border-top: 1px dashed #000; padding-top:5px;} hr {border:0; border-top: 1px dashed #000;} @media print { body { margin: 0; } .no-print { display: none; } } </style>');
+            // Refined print styles for better output
+            printWindow.document.write('<style> \
+                body { font-family: "Courier New", Courier, monospace; margin: 10mm; font-size: 10pt; line-height: 1.3; } \
+                table { width: 100%; border-collapse: collapse; margin: 8px 0; } \
+                td, th { padding: 3px 1px; border-bottom: 1px dashed #999; text-align: left; font-size: 9pt; } \
+                th { font-weight: bold; border-bottom: 1px solid #333; } \
+                th:nth-child(1), td:nth-child(1) { width: 50%; } \
+                th:nth-child(2), td:nth-child(2) { text-align: center; width: 15%; } \
+                th:nth-child(3), td:nth-child(3) { text-align: right; width: 20%;} \
+                th:last-child, td:last-child { text-align: right; width: 20%;} \
+                .receipt-header, .receipt-footer { text-align: center; margin-bottom: 8px;} \
+                .receipt-header h4 { margin: 1px 0; font-size: 13pt;} \
+                .receipt-header p { margin: 1px 0; font-size: 8pt;} \
+                .receipt-details p { margin: 2px 0; font-size: 9pt; } \
+                .receipt-total { text-align: right; font-weight: bold; margin-top:8px; border-top: 1px double #000; padding-top:5px; font-size: 11pt;} \
+                hr.receipt-hr {border:0; border-top: 1px dashed #000; margin: 5px 0;} \
+                @page { size: auto; margin: 5mm; } \
+                @media print { \
+                    body { margin: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; } \
+                    .no-print { display: none; } \
+                } \
+            </style>');
             printWindow.document.write('</head><body>');
-            printWindow.document.write(receiptContent);
+            printWindow.document.write(receiptContentHTML);
             printWindow.document.write('</body></html>');
             printWindow.document.close();
-            printWindow.focus();
-            setTimeout(() => {
+            printWindow.focus(); // Important for some browsers
+            setTimeout(() => { // Timeout needed for content to load in new window before print
                 try {
                     printWindow.print();
                 } catch (e) {
                     console.error("Print failed:", e);
-                    alert("Printing failed. Please try again or use browser's print option.");
+                    // Optionally alert user, but print dialog might have already shown
                 } finally {
-                    // Close window only if print was successful or after a delay if print dialog blocks
-                    // For simplicity, or if the user cancels, we might still want to close it.
-                    // setTimeout(() => { printWindow.close(); }, 1000); // Give a bit more time
+                    // Some browsers close the window automatically after print, some don't.
+                    // Closing it too soon can cancel the print.
+                    // setTimeout(() => { if (!printWindow.closed) { printWindow.close(); } }, 3000); 
                 }
-            }, 300); // Increased timeout slightly
+            }, 400); // Increased timeout slightly more
         });
     }
 
-    // const applyFiltersButton = document.getElementById('applyFiltersBtn');
-    // if (applyFiltersButton) {
-    //     applyFiltersButton.addEventListener('click', function() {
-    //         const startDate = document.getElementById('startDate').value;
-    //         const endDate = document.getElementById('endDate').value;
-    //         const customerName = document.getElementById('searchCustomer').value;
-    //         console.log("Filtering with:", { startDate, endDate, customerName });
-    //         // Example: Construct URL and redirect for server-side filtering
-    //         const queryParams = new URLSearchParams();
-    //         if (startDate) queryParams.append('start_date', startDate);
-    //         if (endDate) queryParams.append('end_date', endDate);
-    //         if (customerName) queryParams.append('customer_search', customerName);
-    //         window.location.href = `/transactions?${queryParams.toString()}`;
-    //         // Or use Fetch API to load filtered data into the table body
-    //     });
-    // }
-
-}); // This is the closing brace and parenthesis for document.addEventListener('DOMContentLoaded', ...)
+    // The filter form submission is handled by standard form GET request now
+    // So, no extra JS is strictly needed if using method="GET" action="{{ url_for('transactions') }}"
+    // If you wanted AJAX filtering, you'd uncomment and modify the applyFiltersBtn listener.
+});
 </script>
 {% endblock %}

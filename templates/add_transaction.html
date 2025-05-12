@@ -5,8 +5,9 @@
 
 {% block styles %}
 <style>
-    .product-row { margin-bottom: 10px; }
+    .product-row { margin-bottom: 10px; display: flex; align-items: center; gap: 0.5rem; }
     #runningTotal { font-size: 1.2em; font-weight: bold; }
+    .product-category-filter { margin-bottom: 1rem; }
 </style>
 {% endblock %}
 
@@ -18,40 +19,55 @@
         </div>
         <div class="card-body">
             <form method="POST" id="addTransactionForm">
-                {# Customer Selection #}
+                {# Customer & Payment Method #}
                 <div class="row mb-3">
                     <div class="col-md-6">
                         <label for="customer_id" class="form-label">Customer</label>
                         <select class="form-select" id="customer_id" name="customer_id">
                             <option value="">-- Walk-in Customer --</option>
                             {% for customer in customers %}
-                                <option value="{{ customer.id }}">{{ customer.name }} ({{ customer.phone_number or 'No Phone' }})</option>
+                                <option value="{{ customer.id }}" {% if form_data and form_data.selected_customer_id == customer.id|string %}selected{% endif %}>
+                                    {{ customer.name }} {{ '(' + customer.phone_number + ')' if customer.phone_number else '' }}
+                                </option>
                             {% endfor %}
                         </select>
                     </div>
                     <div class="col-md-6">
                         <label for="payment_method" class="form-label">Payment Method <span class="text-danger">*</span></label>
                         <select class="form-select" id="payment_method" name="payment_method" required>
-                            <option value="Cash" selected>Cash</option>
-                            <option value="Mobile Money">Mobile Money</option>
-                            <option value="Card">Card</option>
-                            <option value="Bank Transfer">Bank Transfer</option>
-                            <option value="Other">Other</option>
+                            {% set p_methods = ['Cash', 'Mobile Money', 'Card', 'Bank Transfer', 'Other'] %}
+                            {% for method in p_methods %}
+                                <option value="{{ method }}" {% if (form_data and form_data.selected_payment_method == method) or (not form_data and method == 'Cash') %}selected{% endif %}>
+                                    {{ method }}
+                                </option>
+                            {% endfor %}
                         </select>
                     </div>
                 </div>
 
                 <hr>
                 <h4>Products</h4>
+                
+                {# Category Filter for Products #}
+                <div class="row product-category-filter">
+                    <div class="col-md-5">
+                        <label for="productCategoryFilter" class="form-label">Filter Products by Category</label>
+                        <select class="form-select" id="productCategoryFilter">
+                            <option value="">All Available Categories</option>
+                            {% for category in categories %}
+                                <option value="{{ category }}">{{ category }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+
                 <div id="productItemsContainer">
-                    {# Product rows will be added here by JavaScript #}
+                    {# Initial Product Row - will be populated by JS based on filter or all products #}
                     <div class="product-row row gx-2 align-items-center">
                         <div class="col-md-5">
                             <select class="form-select product-select" name="product_id[]">
                                 <option value="">Select Product</option>
-                                {% for product in products %}
-                                    <option value="{{ product.id }}" data-price="{{ product.price }}">{{ product.name }} (Stock: {{product.stock }}) - {{ format_ugx(product.price) }}</option>
-                                {% endfor %}
+                                {# Options will be populated by JavaScript based on category filter #}
                             </select>
                         </div>
                         <div class="col-md-2">
@@ -61,7 +77,7 @@
                             <input type="text" class="form-control item-total-display" readonly placeholder="Item Total">
                         </div>
                         <div class="col-md-2">
-                            <button type="button" class="btn btn-sm btn-danger remove-product-row-btn">Remove</button>
+                            <button type="button" class="btn btn-sm btn-danger remove-product-row-btn" style="display:none;">Remove</button>
                         </div>
                     </div>
                 </div>
@@ -71,7 +87,7 @@
                 <div class="row mb-3">
                     <div class="col-md-12">
                         <label for="notes" class="form-label">Notes / Remarks</label>
-                        <textarea class="form-control" id="notes" name="notes" rows="2"></textarea>
+                        <textarea class="form-control" id="notes" name="notes" rows="2">{{ form_data.notes_text or '' }}</textarea>
                     </div>
                 </div>
 
@@ -88,15 +104,13 @@
     </div>
 </div>
 
-{# Template for new product rows (for JavaScript) #}
+{# Template for new product rows (for JavaScript) - content will be dynamically built #}
 <template id="productRowTemplate">
     <div class="product-row row gx-2 align-items-center">
         <div class="col-md-5">
             <select class="form-select product-select" name="product_id[]">
                 <option value="">Select Product</option>
-                {% for product in products %}
-                    <option value="{{ product.id }}" data-price="{{ product.price }}">{{ product.name }} (Stock: {{product.stock }}) - {{ format_ugx(product.price) }}</option>
-                {% endfor %}
+                {# JS will populate this #}
             </select>
         </div>
         <div class="col-md-2">
@@ -117,86 +131,222 @@
 document.addEventListener('DOMContentLoaded', function() {
     const productItemsContainer = document.getElementById('productItemsContainer');
     const addProductRowBtn = document.getElementById('addProductRowBtn');
-    const productRowTemplate = document.getElementById('productRowTemplate');
-    const runningTotalEl = document.getElementById('runningTotal');
-    const formatUgx = (value) => `UGX ${parseFloat(value).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+    const productRowTemplateEl = document.getElementById('productRowTemplate'); // Get template element
 
-    function updateTotals() {
+    // --- CORRECTED METHOD TO GET PRODUCTS DATA ---
+    // Step 1: Retrieve the JSON string from the data attribute (set in the HTML body)
+    const productsDataStoreElement = document.getElementById('productsDataStore'); // Ensure this ID exists in your HTML body
+    let productsJsonString = '[]'; // Default to an empty array string
+    if (productsDataStoreElement && productsDataStoreElement.dataset.products) {
+        productsJsonString = productsDataStoreElement.dataset.products;
+    }
+
+    // Step 2: Parse the JSON string into a JavaScript array
+    let allAvailableProducts = [];
+    try {
+        allAvailableProducts = JSON.parse(productsJsonString);
+        if (!Array.isArray(allAvailableProducts)) { 
+            console.warn("Parsed products data from data attribute is not an array, defaulting to empty array.");
+            allAvailableProducts = [];
+        }
+    } catch (e) {
+        console.error("Error parsing products JSON data from data attribute:", e);
+        allAvailableProducts = []; 
+    }
+    // --- END OF CORRECTED METHOD ---
+
+    const runningTotalEl = document.getElementById('runningTotal');
+    const productCategoryFilterEl = document.getElementById('productCategoryFilter');
+    const formatUgxJS = (value) => {
+        if (isNaN(parseFloat(value))) return 'UGX 0'; // Handle NaN
+        return `UGX ${parseFloat(value).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+    };
+
+    function populateProductSelect(selectElement, selectedCategory = "") {
+        selectElement.innerHTML = '<option value="">Select Product</option>'; 
+        const filteredProducts = selectedCategory && selectedCategory !== ""
+            ? allAvailableProducts.filter(p => p.category === selectedCategory)
+            : allAvailableProducts;
+
+        filteredProducts.forEach(product => {
+            const option = document.createElement('option');
+            option.value = product.id;
+            option.textContent = `${product.name} (Stock: ${product.stock}) - ${formatUgxJS(product.price)}`;
+            option.dataset.price = product.price;
+            option.dataset.stock = product.stock; 
+            option.dataset.name = product.name;   
+            selectElement.appendChild(option);
+        });
+    }
+    
+    function updateRowTotals(row) {
+        const productSelect = row.querySelector('.product-select');
+        const quantityInput = row.querySelector('.quantity-input');
+        const itemTotalDisplay = row.querySelector('.item-total-display');
+        
+        const selectedOption = productSelect.options[productSelect.selectedIndex];
+        // Ensure selectedOption and selectedOption.dataset exist before accessing price
+        const price = (selectedOption && selectedOption.dataset && selectedOption.dataset.price) ? parseFloat(selectedOption.dataset.price) : 0;
+        const quantity = parseInt(quantityInput.value) || 0;
+        
+        const itemTotal = price * quantity;
+        if (itemTotalDisplay) {
+            itemTotalDisplay.value = formatUgxJS(itemTotal);
+        }
+        updateGrandTotal();
+    }
+
+    function updateGrandTotal() {
         let grandTotal = 0;
         productItemsContainer.querySelectorAll('.product-row').forEach(row => {
             const productSelect = row.querySelector('.product-select');
             const quantityInput = row.querySelector('.quantity-input');
-            const itemTotalDisplay = row.querySelector('.item-total-display');
-            
             const selectedOption = productSelect.options[productSelect.selectedIndex];
-            const price = parseFloat(selectedOption.dataset.price) || 0;
-            const quantity = parseInt(quantityInput.value) || 0;
-            
-            const itemTotal = price * quantity;
-            if (itemTotalDisplay) { // Check if element exists
-                itemTotalDisplay.value = formatUgx(itemTotal);
+            if (selectedOption && selectedOption.value) { 
+                const price = (selectedOption.dataset && selectedOption.dataset.price) ? parseFloat(selectedOption.dataset.price) : 0;
+                const quantity = parseInt(quantityInput.value) || 0;
+                grandTotal += price * quantity;
             }
-            grandTotal += itemTotal;
         });
-        runningTotalEl.textContent = formatUgx(grandTotal);
+        if (runningTotalEl) { // Check if element exists
+             runningTotalEl.textContent = formatUgxJS(grandTotal);
+        }
     }
 
     function addRowEventListeners(row) {
-        row.querySelector('.product-select').addEventListener('change', updateTotals);
-        row.querySelector('.quantity-input').addEventListener('input', updateTotals);
+        const productSelect = row.querySelector('.product-select');
+        const quantityInput = row.querySelector('.quantity-input');
+        
+        if(productSelect) productSelect.addEventListener('change', () => updateRowTotals(row));
+        if(quantityInput) quantityInput.addEventListener('input', () => updateRowTotals(row));
+        
         const removeBtn = row.querySelector('.remove-product-row-btn');
-        if (removeBtn) { // First row might not have it initially
+        if (removeBtn) {
             removeBtn.addEventListener('click', function() {
                 if (productItemsContainer.querySelectorAll('.product-row').length > 1) {
                     this.closest('.product-row').remove();
-                    updateTotals();
+                    updateGrandTotal();
                 } else {
                     alert("At least one product item is required.");
                 }
             });
+            removeBtn.style.display = 'inline-block'; // Make sure it's visible
         }
     }
 
-    addProductRowBtn.addEventListener('click', function() {
-        const newRow = productRowTemplate.content.cloneNode(true);
-        productItemsContainer.appendChild(newRow);
-        // Get the newly added row (it's the last child)
-        const appendedRow = productItemsContainer.lastElementChild; 
-        addRowEventListeners(appendedRow);
-        updateTotals(); // Initial calculation for the new row
-    });
+    if (addProductRowBtn) { // Check if button exists
+        addProductRowBtn.addEventListener('click', function() {
+            if (!productRowTemplateEl) {
+                console.error("Product row template not found!");
+                return;
+            }
+            const templateContent = productRowTemplateEl.content.cloneNode(true);
+            const newRowDiv = templateContent.querySelector('.product-row'); 
+            
+            if (!newRowDiv) {
+                console.error("Cloned template does not contain .product-row");
+                return;
+            }
+            
+            const newProductSelect = newRowDiv.querySelector('.product-select');
+            if (newProductSelect && productCategoryFilterEl) {
+                 populateProductSelect(newProductSelect, productCategoryFilterEl.value);
+            } else if (newProductSelect) {
+                 populateProductSelect(newProductSelect); // No category filter available
+            }
 
-    // Add listeners to the initial row
-    productItemsContainer.querySelectorAll('.product-row').forEach(row => {
-        addRowEventListeners(row);
-        // Hide remove button if it's the only row initially
-        if (productItemsContainer.querySelectorAll('.product-row').length === 1) {
-            const initialRemoveBtn = row.querySelector('.remove-product-row-btn');
-            if (initialRemoveBtn) initialRemoveBtn.style.display = 'none';
+
+            productItemsContainer.appendChild(newRowDiv);
+            const appendedRow = productItemsContainer.lastElementChild; // Get the actual appended element
+            if (appendedRow && appendedRow.matches('.product-row')) { // Ensure it's the correct element
+                addRowEventListeners(appendedRow);
+            }
+            updateGrandTotal(); 
+        });
+    }
+
+    if (productCategoryFilterEl) { // Check if filter exists
+        productCategoryFilterEl.addEventListener('change', function() {
+            const selectedCategory = this.value;
+            productItemsContainer.querySelectorAll('.product-row .product-select').forEach(selectEl => {
+                const currentVal = selectEl.value; 
+                populateProductSelect(selectEl, selectedCategory);
+                // Try to reselect if the product is still in the filtered list and was previously selected
+                const stillExists = Array.from(selectEl.options).some(opt => opt.value === currentVal);
+                if (currentVal && stillExists) {
+                    selectEl.value = currentVal;
+                } else if (selectEl.options.length > 1 && !selectEl.value) { // If nothing selected and options exist (besides "Select Product")
+                    // selectEl.value = selectEl.options[1].value; // Optionally select the first actual product
+                } else if (!selectEl.value) {
+                     selectEl.value = ""; // Ensure "Select Product" is chosen if currentVal no longer valid
+                }
+                // Important: After changing selection or options, update individual row total
+                updateRowTotals(selectEl.closest('.product-row'));
+            });
+            updateGrandTotal(); // Then update grand total
+        });
+    }
+
+    // Initial setup for the first row (if it exists)
+    const initialRow = productItemsContainer.querySelector('.product-row');
+    if (initialRow) {
+        const initialProductSelect = initialRow.querySelector('.product-select');
+        if (initialProductSelect) {
+            populateProductSelect(initialProductSelect, productCategoryFilterEl ? productCategoryFilterEl.value : ""); 
+            addRowEventListeners(initialRow);
+            
+            const initialRemoveBtn = initialRow.querySelector('.remove-product-row-btn');
+            if (initialRemoveBtn) { // Hide remove button for the very first row if it's the only one
+                 initialRemoveBtn.style.display = (productItemsContainer.querySelectorAll('.product-row').length === 1) ? 'none' : 'inline-block';
+            }
         }
-    });
-    
-    updateTotals(); // Initial calculation on page load for the first row
+        updateGrandTotal();
+    }
 
-    // Form submission - prevent if no valid products
-    document.getElementById('addTransactionForm').addEventListener('submit', function(event) {
-        let validProductSelected = false;
-        productItemsContainer.querySelectorAll('.product-row').forEach(row => {
-            const productSelect = row.querySelector('.product-select');
-            if (productSelect.value) {
-                validProductSelected = true;
+
+    const addTransactionFormEl = document.getElementById('addTransactionForm');
+    if (addTransactionFormEl) { // Check if form exists
+        addTransactionFormEl.addEventListener('submit', function(event) {
+            let validProductSelected = false;
+            let stockError = false;
+            let quantityError = false;
+
+            productItemsContainer.querySelectorAll('.product-row').forEach(row => {
+                const productSelect = row.querySelector('.product-select');
+                const quantityInput = row.querySelector('.quantity-input');
+                if (productSelect && productSelect.value) { 
+                    validProductSelected = true;
+                    const selectedOption = productSelect.options[productSelect.selectedIndex];
+                    const stock = parseInt(selectedOption.dataset.stock);
+                    const quantity = parseInt(quantityInput.value);
+                    const productName = selectedOption.dataset.name;
+                    if (quantity <=0) {
+                        alert(`Quantity for '${productName}' must be greater than 0.`);
+                        quantityError = true; 
+                    } else if (quantity > stock) {
+                        alert(`Not enough stock for '${productName}'. Available: ${stock}, Requested: ${quantity}.`);
+                        stockError = true;
+                    }
+                }
+            });
+
+            if (!validProductSelected) {
+                alert('Please select at least one product for the transaction.');
+                event.preventDefault();
+                return;
+            }
+            if (stockError || quantityError) {
+                event.preventDefault(); 
+                return;
+            }
+
+            const saveBtn = document.getElementById('saveTransactionBtn');
+            if (saveBtn) { // Check if save button exists
+                saveBtn.disabled = true;
+                saveBtn.innerHTML = `<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Processing...`;
             }
         });
-        if (!validProductSelected) {
-            alert('Please select at least one product.');
-            event.preventDefault();
-            return false;
-        }
-        // Add spinner to save button
-        const saveBtn = document.getElementById('saveTransactionBtn');
-        saveBtn.disabled = true;
-        saveBtn.innerHTML = `<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Processing...`;
-    });
+    }
 });
 </script>
 {% endblock %}

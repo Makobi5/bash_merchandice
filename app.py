@@ -457,6 +457,9 @@ def products():
         flash("Could not load product data.", "danger")
         return render_template('products.html', products=[])
 
+# app.py
+# app.py
+
 @app.route('/transactions')
 @login_required
 def transactions():
@@ -465,8 +468,12 @@ def transactions():
         return render_template('transactions.html', transactions=[])
     
     try:
-        # Fetch transactions with customer, employee info, and items for receipt
-        response = supabase.table('transactions') \
+        # Get filter parameters from query string
+        start_date_str = request.args.get('start_date')
+        end_date_str = request.args.get('end_date')
+        search_term = request.args.get('search_term', '').strip().lower() # For customer name or txn code
+
+        query = supabase.table('transactions') \
             .select('''
                 id, 
                 transaction_code, 
@@ -477,48 +484,85 @@ def transactions():
                 customer:customers ( id, name ), 
                 employee_creator:created_by_user_id ( id, first_name, last_name ),
                 items:transaction_items ( products (name), quantity, price )
-            ''') \
-            .order('date', desc=True) \
-            .execute()
-        
-        transactions_data = []
-        if response.data:
-            for txn in response.data:
-                customer_info = txn.get('customer')
-                customer_name = customer_info['name'] if customer_info else 'Walk-in/N/A'
-                
-                employee_info = txn.get('employee_creator')
-                employee_name = f"{employee_info['first_name']} {employee_info['last_name']}" if employee_info else 'System/Unknown'
-                
-                items_for_receipt = []
-                if txn.get('items'):
-                    for item in txn['items']:
-                        product_name = item['products']['name'] if item.get('products') else 'Unknown Item'
-                        items_for_receipt.append({
-                            'name': product_name,
-                            'quantity': item['quantity'],
-                            'price': item['price']
-                        })
+            ''')
 
-                transactions_data.append({
-                    'id': txn['id'], # Pass the actual transaction ID for edit links
-                    'transaction_code': txn['transaction_code'],
-                    'date': datetime.datetime.fromisoformat(txn['date'].replace('Z', '+00:00')).strftime('%d/%m/%Y %I:%M %p'),
-                    'customer_name': customer_name,
-                    'employee_name': employee_name,
-                    'total': txn['total_amount'],
-                    'payment_method': txn.get('payment_method', 'N/A'), # Provide default if null
-                    'items': items_for_receipt # Pass formatted items
-                })
+        # Apply date filters
+        if start_date_str:
+            try:
+                start_date_dt = datetime.datetime.strptime(start_date_str, '%Y-%m-%d').replace(tzinfo=datetime.timezone.utc)
+                query = query.gte('date', start_date_dt.isoformat())
+            except ValueError:
+                flash("Invalid 'From Date' format. Please use YYYY-MM-DD.", "warning")
         
-        return render_template('transactions.html', transactions=transactions_data)
+        if end_date_str:
+            try:
+                # To make end_date inclusive, filter up to the end of that day
+                end_date_dt = (datetime.datetime.strptime(end_date_str, '%Y-%m-%d') + datetime.timedelta(days=1) - datetime.timedelta(seconds=1)).replace(tzinfo=datetime.timezone.utc)
+                query = query.lte('date', end_date_dt.isoformat())
+            except ValueError:
+                flash("Invalid 'To Date' format. Please use YYYY-MM-DD.", "warning")
+        
+        # Note: Direct filtering on joined customer name like `customer:name.ilike.%{search_term}%`
+        # is not straightforward with the basic Python client query builder for arbitrary text.
+        # This often requires an RPC or view for efficient server-side searching on related fields.
+        # The current implementation will filter by customer name in Python after fetching.
+        # If search_term is a transaction code, we can filter that at DB level.
+        if search_term and search_term.upper().startswith("TXN-"):
+             query = query.ilike('transaction_code', f"%{search_term}%")
+        
+        response = query.order('date', desc=True).execute()
+        
+        raw_transactions = response.data or []
+        transactions_data = []
+
+        for txn in raw_transactions:
+            customer_info = txn.get('customer')
+            customer_name = customer_info['name'] if customer_info else 'Walk-in/N/A'
+            
+            # Python-side filtering for customer name if search_term is not a transaction code
+            if search_term and not search_term.upper().startswith("TXN-"):
+                if search_term not in customer_name.lower():
+                    continue # Skip this transaction
+
+            employee_info = txn.get('employee_creator')
+            employee_name = f"{employee_info['first_name']} {employee_info['last_name']}" if employee_info else 'System/Unknown'
+            
+            items_for_receipt = []
+            if txn.get('items'):
+                for item in txn['items']:
+                    product_name = item['products']['name'] if item.get('products') else 'Unknown Item'
+                    items_for_receipt.append({
+                        'name': product_name,
+                        'quantity': item['quantity'],
+                        'price': item['price']
+                    })
+
+            transactions_data.append({
+                'id': txn['id'],
+                'transaction_code': txn['transaction_code'],
+                'date': datetime.datetime.fromisoformat(txn['date'].replace('Z', '+00:00')).strftime('%d/%m/%Y %I:%M %p'),
+                'customer_name': customer_name,
+                'employee_name': employee_name,
+                'total': txn['total_amount'],
+                'payment_method': txn.get('payment_method', 'N/A'),
+                'items': items_for_receipt # For receipt modal
+            })
+        
+        return render_template('transactions.html', 
+                               transactions=transactions_data,
+                               start_date_filter=start_date_str, # Pass back for form repopulation
+                               end_date_filter=end_date_str,
+                               search_term_filter=request.args.get('search_term', '')) # Use original search_term
     
     except Exception as e:
         print(f"Error fetching transactions: {type(e).__name__} - {e}")
         import traceback
         traceback.print_exc()
         flash("Could not load transaction data. Check server logs for details.", "danger")
-        return render_template('transactions.html', transactions=[])
+        return render_template('transactions.html', transactions=[],
+                               start_date_filter=request.args.get('start_date'),
+                               end_date_filter=request.args.get('end_date'),
+                               search_term_filter=request.args.get('search_term'))
 
 @app.route('/transactions/edit/<int:txn_id>', methods=['GET', 'POST'])
 @login_required
@@ -699,6 +743,10 @@ def add_transaction():
         flash("Database connection failed.", "danger")
         return redirect(url_for('transactions'))
 
+    # Fetch categories for product filtering (for GET request)
+    # Fetching all products and customers is done before rendering the form on GET
+    # or after a POST error.
+    
     if request.method == 'POST':
         try:
             customer_id_form = request.form.get('customer_id')
@@ -708,14 +756,29 @@ def add_transaction():
             product_ids = request.form.getlist('product_id[]')
             quantities = request.form.getlist('quantity[]')
 
-            if not product_ids or not any(pid for pid in product_ids): # Check if any product selected
+            # --- Form data to pass back on error ---
+            form_data_on_error = {
+                'selected_customer_id': customer_id_form,
+                'selected_payment_method': payment_method,
+                'notes_text': notes,
+                'items': [] # We'll reconstruct this if needed
+            }
+            # This is a bit tricky to pass back dynamic product rows perfectly.
+            # For now, we'll just re-fetch all products/customers.
+
+            if not product_ids or not any(pid for pid in product_ids if pid): # Check if any valid product selected
                 flash("Please select at least one product.", "danger")
-                # Need to re-fetch customers and products for the form
+                # Re-fetch data needed for the form
                 customers_resp = supabase.table('customers').select('id, name, phone_number').order('name').execute()
-                products_resp = supabase.table('products').select('id, name, price, stock').gt('stock', 0).order('name').execute() # Only show in-stock
+                # Fetch active and in-stock products
+                products_resp = supabase.table('products').select('id, name, price, stock, category').eq('status', True).gt('stock', 0).order('name').execute()
+                categories_resp = supabase.table('products').select('category', count='exact').group('category').execute()
+                
                 return render_template('add_transaction.html', 
                                      customers=customers_resp.data or [], 
-                                     products=products_resp.data or [])
+                                     products=products_resp.data or [],
+                                     categories=[cat['category'] for cat in categories_resp.data] if categories_resp.data else [],
+                                     form_data=form_data_on_error) # Pass back some form data
 
 
             transaction_items_to_insert = []
@@ -723,27 +786,25 @@ def add_transaction():
             product_stock_updates = []
 
             for i, product_id_str in enumerate(product_ids):
-                if not product_id_str: continue # Skip empty product selections
+                if not product_id_str: continue 
 
                 product_id = int(product_id_str)
                 quantity = int(quantities[i])
 
                 if quantity <= 0:
-                    flash(f"Quantity for a selected product must be positive.", "danger")
-                    # Re-render form (data needed)
+                    flash(f"Quantity for product ID {product_id} must be positive.", "danger")
                     customers_resp = supabase.table('customers').select('id, name, phone_number').order('name').execute()
-                    products_resp = supabase.table('products').select('id, name, price, stock').gt('stock', 0).order('name').execute()
-                    return render_template('add_transaction.html', customers=customers_resp.data or [], products=products_resp.data or [])
+                    products_resp = supabase.table('products').select('id, name, price, stock, category').eq('status', True).gt('stock', 0).order('name').execute()
+                    categories_resp = supabase.table('products').select('category', count='exact').group('category').execute()
+                    return render_template('add_transaction.html', customers=customers_resp.data or [], products=products_resp.data or [], categories=[cat['category'] for cat in categories_resp.data] if categories_resp.data else [], form_data=form_data_on_error)
 
-
-                # Fetch product price and current stock (important to get fresh data)
-                product_info_res = supabase.table('products').select('price, stock, name').eq('id', product_id).maybe_single().execute()
+                product_info_res = supabase.table('products').select('price, stock, name').eq('id', product_id).eq('status', True).maybe_single().execute()
                 if not product_info_res.data:
-                    flash(f"Product with ID {product_id} not found.", "danger")
-                    # Re-render form
+                    flash(f"Active product with ID {product_id} not found.", "danger")
                     customers_resp = supabase.table('customers').select('id, name, phone_number').order('name').execute()
-                    products_resp = supabase.table('products').select('id, name, price, stock').gt('stock', 0).order('name').execute()
-                    return render_template('add_transaction.html', customers=customers_resp.data or [], products=products_resp.data or [])
+                    products_resp = supabase.table('products').select('id, name, price, stock, category').eq('status', True).gt('stock', 0).order('name').execute()
+                    categories_resp = supabase.table('products').select('category', count='exact').group('category').execute()
+                    return render_template('add_transaction.html', customers=customers_resp.data or [], products=products_resp.data or [], categories=[cat['category'] for cat in categories_resp.data] if categories_resp.data else [], form_data=form_data_on_error)
 
                 product_price = product_info_res.data['price']
                 current_stock = product_info_res.data['stock']
@@ -751,34 +812,29 @@ def add_transaction():
 
                 if quantity > current_stock:
                     flash(f"Not enough stock for '{product_name}'. Available: {current_stock}, Requested: {quantity}.", "danger")
-                    # Re-render form
                     customers_resp = supabase.table('customers').select('id, name, phone_number').order('name').execute()
-                    products_resp = supabase.table('products').select('id, name, price, stock').gt('stock', 0).order('name').execute()
-                    return render_template('add_transaction.html', customers=customers_resp.data or [], products=products_resp.data or [])
-
+                    products_resp = supabase.table('products').select('id, name, price, stock, category').eq('status', True).gt('stock', 0).order('name').execute()
+                    categories_resp = supabase.table('products').select('category', count='exact').group('category').execute()
+                    return render_template('add_transaction.html', customers=customers_resp.data or [], products=products_resp.data or [], categories=[cat['category'] for cat in categories_resp.data] if categories_resp.data else [], form_data=form_data_on_error)
 
                 item_total = product_price * quantity
                 grand_total += item_total
                 
                 transaction_items_to_insert.append({
-                    # 'transaction_id' will be set after main transaction insert
                     'product_id': product_id,
                     'quantity': quantity,
-                    'price': product_price # Price at the time of transaction
+                    'price': product_price 
                 })
                 product_stock_updates.append({'id': product_id, 'new_stock': current_stock - quantity})
 
-            # Get current logged-in user's DB ID (from public.users table)
             created_by_db_user_id = get_current_user_db_id_from_session()
             if created_by_db_user_id is None:
                 flash("Could not identify processing employee. Please log in again.", "danger")
-                # Re-render form
                 customers_resp = supabase.table('customers').select('id, name, phone_number').order('name').execute()
-                products_resp = supabase.table('products').select('id, name, price, stock').gt('stock', 0).order('name').execute()
-                return render_template('add_transaction.html', customers=customers_resp.data or [], products=products_resp.data or [])
+                products_resp = supabase.table('products').select('id, name, price, stock, category').eq('status', True).gt('stock', 0).order('name').execute()
+                categories_resp = supabase.table('products').select('category', count='exact').group('category').execute()
+                return render_template('add_transaction.html', customers=customers_resp.data or [], products=products_resp.data or [], categories=[cat['category'] for cat in categories_resp.data] if categories_resp.data else [], form_data=form_data_on_error)
 
-
-            # 1. Insert main transaction record
             main_transaction_payload = {
                 'transaction_code': generate_transaction_code(),
                 'date': datetime.datetime.now(datetime.timezone.utc).isoformat(),
@@ -786,37 +842,41 @@ def add_transaction():
                 'customer_id': int(customer_id_form) if customer_id_form else None,
                 'payment_method': payment_method,
                 'notes': notes,
-                'created_by_user_id': created_by_db_user_id # This is the int4 ID from your users/employees table
+                'created_by_user_id': created_by_db_user_id
             }
             
+            # --- Use a database function (RPC) for atomic transaction processing ---
+            # This is the ideal way to handle inserts into multiple tables and stock updates
+            # supabase.rpc('create_transaction_with_items_and_update_stock', 
+            #              {'transaction_data': main_transaction_payload, 
+            #               'items_data': transaction_items_to_insert,
+            #               'stock_updates_data': product_stock_updates}).execute()
+            # For now, proceeding with separate calls:
+
             inserted_txn_res = supabase.table('transactions').insert(main_transaction_payload).execute()
 
             if not inserted_txn_res.data or len(inserted_txn_res.data) == 0:
                 flash("Failed to create main transaction record.", "danger")
-                # Re-render form
                 customers_resp = supabase.table('customers').select('id, name, phone_number').order('name').execute()
-                products_resp = supabase.table('products').select('id, name, price, stock').gt('stock', 0).order('name').execute()
-                return render_template('add_transaction.html', customers=customers_resp.data or [], products=products_resp.data or [])
+                products_resp = supabase.table('products').select('id, name, price, stock, category').eq('status', True).gt('stock', 0).order('name').execute()
+                categories_resp = supabase.table('products').select('category', count='exact').group('category').execute()
+                return render_template('add_transaction.html', customers=customers_resp.data or [], products=products_resp.data or [], categories=[cat['category'] for cat in categories_resp.data] if categories_resp.data else [], form_data=form_data_on_error)
 
             new_transaction_id = inserted_txn_res.data[0]['id']
 
-            # 2. Insert transaction items
             for item in transaction_items_to_insert:
                 item['transaction_id'] = new_transaction_id
             
             items_insert_res = supabase.table('transaction_items').insert(transaction_items_to_insert).execute()
-            if not items_insert_res.data and len(transaction_items_to_insert) > 0 : # Check if items were expected
-                 # Rollback or log error: items failed to insert.
-                 # For now, just flash a strong warning. Ideally, use DB transactions.
-                flash("Transaction created, but failed to record some items! Please review.", "warning")
-                # Attempt to delete the main transaction record for consistency? Complex without DB transactions.
-                # supabase.table('transactions').delete().eq('id', new_transaction_id).execute()
+            if not items_insert_res.data and len(transaction_items_to_insert) > 0:
+                flash(f"Transaction #{inserted_txn_res.data[0]['transaction_code']} created, but failed to record items! Please review manually.", "danger")
+                # Consider logging this critical failure or attempting rollback logic if possible (complex without DB transaction)
 
-            # 3. Update product stock (can be done via RPC for atomicity)
-            # For now, individual updates:
             for stock_update in product_stock_updates:
-                supabase.table('products').update({'stock': stock_update['new_stock']}).eq('id', stock_update['id']).execute()
-                # Add error checking for stock update if needed
+                stock_update_res = supabase.table('products').update({'stock': stock_update['new_stock']}).eq('id', stock_update['id']).execute()
+                if not stock_update_res.data:
+                    flash(f"Failed to update stock for product ID {stock_update['id']}. Please check manually.", "warning")
+
 
             flash(f"Transaction #{inserted_txn_res.data[0]['transaction_code']} created successfully!", "success")
             return redirect(url_for('transactions'))
@@ -825,24 +885,32 @@ def add_transaction():
             print(f"Error adding transaction: {type(e).__name__} - {e}")
             import traceback
             traceback.print_exc()
-            flash("An error occurred while adding the transaction.", "danger")
-            # Fall through to GET to re-render form with error
+            flash("An error occurred while adding the transaction. Please check details and try again.", "danger")
+            # Fall through to GET to re-render form with error, re-fetching necessary data
 
     # GET request or POST failed - show the form
     try:
-        customers_response = supabase.table('customers').select('id, name, phone_number').order('name').execute()
-        # Only show products that are in stock for selection
-        products_response = supabase.table('products').select('id, name, price, stock').gt('stock', 0).order('name').execute()
+        customers_resp = supabase.table('customers').select('id, name, phone_number').order('name').execute()
+        # Only fetch active products with stock > 0
+        products_resp = supabase.table('products').select('id, name, price, stock, category').eq('status', True).gt('stock', 0).order('category').order('name').execute()
+        # Fetch distinct categories from active, in-stock products
+        # This is a bit inefficient. Better to get categories from products_resp if large.
+        # Or, if categories are fixed, define them in Python or a separate table.
+        # For now, fetching distinct categories from available products:
+        available_categories = sorted(list(set(p['category'] for p in products_resp.data if p['category']))) if products_resp.data else []
+
     except Exception as e:
         print(f"Error fetching data for add transaction form: {e}")
-        flash("Could not load data for the transaction form.", "warning")
-        customers_response = {'data': []} # Empty data on error
-        products_response = {'data': []}  # Empty data on error
-
+        flash("Could not load data needed for the transaction form.", "warning")
+        customers_resp = {'data': []}
+        products_resp = {'data': []}
+        available_categories = []
 
     return render_template('add_transaction.html', 
-                         customers=customers_response.data or [], 
-                         products=products_response.data or [])
+                         customers=customers_resp.data or [], 
+                         products=products_resp.data or [],
+                         categories=available_categories,
+                         form_data=getattr(request, 'form_data_on_error', {})) # Pass back form data if it was set
 
 @app.route('/employees')
 @login_required
