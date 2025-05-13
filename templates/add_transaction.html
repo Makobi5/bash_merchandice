@@ -6,8 +6,9 @@
 {% block styles %}
 <style>
     .product-row { margin-bottom: 10px; display: flex; align-items: center; gap: 0.5rem; }
-    #runningTotal { font-size: 1.2em; font-weight: bold; }
+    #grandTotalDisplay, #amountPaid, #balanceDue { font-size: 1.2em; font-weight: bold; }
     .product-category-filter { margin-bottom: 1rem; }
+    .item-total-display, #amountPaidInput { text-align: right; }
 </style>
 {% endblock %}
 
@@ -18,21 +19,37 @@
             <h2>Add New Transaction</h2>
         </div>
         <div class="card-body">
+            {# Hidden div to store product data as JSON string #}
+            <div id="productsDataStore" data-products="{{ products | tojson | safe if products else '[]' }}" style="display: none;"></div>
+
             <form method="POST" id="addTransactionForm">
                 {# Customer & Payment Method #}
                 <div class="row mb-3">
-                    <div class="col-md-6">
-                        <label for="customer_id" class="form-label">Customer</label>
+                    <div class="col-md-4">
+                        <label for="customer_selection_type" class="form-label">Customer Type</label>
+                        <select class="form-select" id="customer_selection_type">
+                            <option value="existing">Select Existing Customer</option>
+                            <option value="new">Enter New Customer Name</option>
+                            <option value="walk_in" selected>Walk-in Customer</option>
+                        </select>
+                    </div>
+                    <div class="col-md-4" id="existingCustomerSection">
+                        <label for="customer_id" class="form-label">Existing Customer</label>
                         <select class="form-select" id="customer_id" name="customer_id">
-                            <option value="">-- Walk-in Customer --</option>
+                            <option value="">-- Select --</option>
                             {% for customer in customers %}
                                 <option value="{{ customer.id }}" {% if form_data and form_data.selected_customer_id == customer.id|string %}selected{% endif %}>
-                                    {{ customer.name }} {{ '(' + customer.phone_number + ')' if customer.phone_number else '' }}
+                                    {{ customer.name }} {{ ('(' + customer.phone_number + ')') if customer.phone_number else '' }}
                                 </option>
                             {% endfor %}
                         </select>
                     </div>
-                    <div class="col-md-6">
+                    <div class="col-md-4" id="newCustomerNameSection" style="display:none;">
+                        <label for="new_customer_name" class="form-label">New Customer Name</label>
+                        <input type="text" class="form-control" id="new_customer_name" name="new_customer_name" placeholder="Enter customer name">
+                         {# You can add phone/email for new customer here too #}
+                    </div>
+                     <div class="col-md-4">
                         <label for="payment_method" class="form-label">Payment Method <span class="text-danger">*</span></label>
                         <select class="form-select" id="payment_method" name="payment_method" required>
                             {% set p_methods = ['Cash', 'Mobile Money', 'Card', 'Bank Transfer', 'Other'] %}
@@ -47,8 +64,6 @@
 
                 <hr>
                 <h4>Products</h4>
-                
-                {# Category Filter for Products #}
                 <div class="row product-category-filter">
                     <div class="col-md-5">
                         <label for="productCategoryFilter" class="form-label">Filter Products by Category</label>
@@ -62,12 +77,10 @@
                 </div>
 
                 <div id="productItemsContainer">
-                    {# Initial Product Row - will be populated by JS based on filter or all products #}
                     <div class="product-row row gx-2 align-items-center">
                         <div class="col-md-5">
                             <select class="form-select product-select" name="product_id[]">
                                 <option value="">Select Product</option>
-                                {# Options will be populated by JavaScript based on category filter #}
                             </select>
                         </div>
                         <div class="col-md-2">
@@ -84,34 +97,37 @@
                 <button type="button" class="btn btn-outline-success btn-sm mt-2" id="addProductRowBtn"><i class="bi bi-plus"></i> Add Another Product</button>
                 
                 <hr>
-                <div class="row mb-3">
-                    <div class="col-md-12">
+                <div class="row mb-3 align-items-end">
+                     <div class="col-md-6">
                         <label for="notes" class="form-label">Notes / Remarks</label>
                         <textarea class="form-control" id="notes" name="notes" rows="2">{{ form_data.notes_text or '' }}</textarea>
                     </div>
+                    <div class="col-md-6 text-end">
+                        <h5 class="mb-1">Subtotal: <span id="subTotalDisplay" class="text-secondary">{{ format_ugx(0) }}</span></h5>
+                        {# Add discount/tax fields here if needed #}
+                        <h4 class="mb-1">Total Amount: <span id="grandTotalDisplay" class="text-primary">{{ format_ugx(0) }}</span></h4>
+                        <div class="mt-2">
+                             <label for="amountPaidInput" class="form-label d-block text-start">Amount Paid:</label>
+                             <input type="number" class="form-control form-control-lg amount-paid-input" id="amountPaidInput" name="amount_paid" placeholder="0" min="0" step="any">
+                        </div>
+                        <h5 class="mt-2">Balance Due: <span id="balanceDueDisplay" class="text-danger">{{ format_ugx(0) }}</span></h5>
+                    </div>
                 </div>
 
-                <div class="text-end mt-3">
-                    <h4>Total Amount: <span id="runningTotal" class="text-primary">{{ format_ugx(0) }}</span></h4>
-                </div>
 
                 <div class="mt-4 d-flex justify-content-end">
                     <a href="{{ url_for('transactions') }}" class="btn btn-outline-secondary me-2">Cancel</a>
-                    <button type="submit" class="btn btn-primary" id="saveTransactionBtn">Record Transaction</button>
+                    <button type="submit" class="btn btn-primary btn-lg" id="saveTransactionBtn">Record Transaction</button> {# Larger button #}
                 </div>
             </form>
         </div>
     </div>
 </div>
 
-{# Template for new product rows (for JavaScript) - content will be dynamically built #}
 <template id="productRowTemplate">
     <div class="product-row row gx-2 align-items-center">
         <div class="col-md-5">
-            <select class="form-select product-select" name="product_id[]">
-                <option value="">Select Product</option>
-                {# JS will populate this #}
-            </select>
+            <select class="form-select product-select" name="product_id[]"><option value="">Select Product</option></select>
         </div>
         <div class="col-md-2">
             <input type="number" class="form-control quantity-input" name="quantity[]" placeholder="Qty" min="1" value="1">
@@ -131,181 +147,181 @@
 document.addEventListener('DOMContentLoaded', function() {
     const productItemsContainer = document.getElementById('productItemsContainer');
     const addProductRowBtn = document.getElementById('addProductRowBtn');
-    const productRowTemplateEl = document.getElementById('productRowTemplate'); // Get template element
-
-    // --- CORRECTED METHOD TO GET PRODUCTS DATA ---
-    // Step 1: Retrieve the JSON string from the data attribute (set in the HTML body)
-    const productsDataStoreElement = document.getElementById('productsDataStore'); // Ensure this ID exists in your HTML body
-    let productsJsonString = '[]'; // Default to an empty array string
-    if (productsDataStoreElement && productsDataStoreElement.dataset.products) {
-        productsJsonString = productsDataStoreElement.dataset.products;
-    }
-
-    // Step 2: Parse the JSON string into a JavaScript array
+    const productRowTemplateEl = document.getElementById('productRowTemplate');
+    
+    const productsDataStoreElement = document.getElementById('productsDataStore');
+    let productsJsonString = productsDataStoreElement ? productsDataStoreElement.dataset.products : '[]';
     let allAvailableProducts = [];
     try {
         allAvailableProducts = JSON.parse(productsJsonString);
-        if (!Array.isArray(allAvailableProducts)) { 
-            console.warn("Parsed products data from data attribute is not an array, defaulting to empty array.");
-            allAvailableProducts = [];
-        }
-    } catch (e) {
-        console.error("Error parsing products JSON data from data attribute:", e);
-        allAvailableProducts = []; 
-    }
-    // --- END OF CORRECTED METHOD ---
+        if (!Array.isArray(allAvailableProducts)) allAvailableProducts = [];
+    } catch (e) { allAvailableProducts = []; console.error("Error parsing products JSON", e); }
 
-    const runningTotalEl = document.getElementById('runningTotal');
+    const subTotalDisplayEl = document.getElementById('subTotalDisplay'); // Changed ID
+    const grandTotalDisplayEl = document.getElementById('grandTotalDisplay'); // Changed ID
+    const amountPaidInputEl = document.getElementById('amountPaidInput');
+    const balanceDueDisplayEl = document.getElementById('balanceDueDisplay'); // Changed ID
     const productCategoryFilterEl = document.getElementById('productCategoryFilter');
+    
+    const customerSelectionTypeEl = document.getElementById('customer_selection_type');
+    const existingCustomerSectionEl = document.getElementById('existingCustomerSection');
+    const newCustomerNameSectionEl = document.getElementById('newCustomerNameSection');
+    const customerIdSelectEl = document.getElementById('customer_id');
+    const newCustomerNameInputEl = document.getElementById('new_customer_name');
+
+
     const formatUgxJS = (value) => {
-        if (isNaN(parseFloat(value))) return 'UGX 0'; // Handle NaN
-        return `UGX ${parseFloat(value).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+        const num = parseFloat(value);
+        if (isNaN(num)) return 'UGX 0';
+        return `UGX ${num.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
     };
 
-    function populateProductSelect(selectElement, selectedCategory = "") {
-        selectElement.innerHTML = '<option value="">Select Product</option>'; 
-        const filteredProducts = selectedCategory && selectedCategory !== ""
-            ? allAvailableProducts.filter(p => p.category === selectedCategory)
-            : allAvailableProducts;
+    function toggleCustomerInput() {
+        const selectionType = customerSelectionTypeEl.value;
+        if (selectionType === 'existing') {
+            existingCustomerSectionEl.style.display = 'block';
+            newCustomerNameSectionEl.style.display = 'none';
+            newCustomerNameInputEl.value = ''; // Clear new customer name
+            customerIdSelectEl.name = "customer_id"; // Ensure correct name for form submission
+            newCustomerNameInputEl.name = ""; // Disable name for new customer input
+        } else if (selectionType === 'new') {
+            existingCustomerSectionEl.style.display = 'none';
+            newCustomerNameSectionEl.style.display = 'block';
+            customerIdSelectEl.value = ''; // Clear existing customer selection
+            customerIdSelectEl.name = ""; // Disable name for existing customer select
+            newCustomerNameInputEl.name = "new_customer_name";
+        } else { // Walk-in
+            existingCustomerSectionEl.style.display = 'none';
+            newCustomerNameSectionEl.style.display = 'none';
+            customerIdSelectEl.value = '';
+            newCustomerNameInputEl.value = '';
+            customerIdSelectEl.name = "customer_id"; // Still submit customer_id (will be empty)
+            newCustomerNameInputEl.name = "";
+        }
+    }
+    if(customerSelectionTypeEl) customerSelectionTypeEl.addEventListener('change', toggleCustomerInput);
+    toggleCustomerInput(); // Initial call
 
-        filteredProducts.forEach(product => {
-            const option = document.createElement('option');
-            option.value = product.id;
-            option.textContent = `${product.name} (Stock: ${product.stock}) - ${formatUgxJS(product.price)}`;
-            option.dataset.price = product.price;
-            option.dataset.stock = product.stock; 
-            option.dataset.name = product.name;   
-            selectElement.appendChild(option);
+
+    function populateProductSelect(selectElement, selectedCategory = "") {
+        const currentVal = selectElement.value; // Store current selection
+        selectElement.innerHTML = '<option value="">Select Product</option>';
+        const filtered = selectedCategory ? allAvailableProducts.filter(p => p.category === selectedCategory) : allAvailableProducts;
+        filtered.forEach(p => {
+            const opt = document.createElement('option');
+            opt.value = p.id;
+            opt.textContent = `${p.name} (Stock: ${p.stock}) - ${formatUgxJS(p.price)}`;
+            opt.dataset.price = p.price;
+            opt.dataset.stock = p.stock;
+            opt.dataset.name = p.name;
+            selectElement.appendChild(opt);
         });
+        // Try to restore previous selection if still valid
+        if (Array.from(selectElement.options).some(opt => opt.value === currentVal)) {
+            selectElement.value = currentVal;
+        }
     }
     
-    function updateRowTotals(row) {
-        const productSelect = row.querySelector('.product-select');
-        const quantityInput = row.querySelector('.quantity-input');
-        const itemTotalDisplay = row.querySelector('.item-total-display');
-        
-        const selectedOption = productSelect.options[productSelect.selectedIndex];
-        // Ensure selectedOption and selectedOption.dataset exist before accessing price
-        const price = (selectedOption && selectedOption.dataset && selectedOption.dataset.price) ? parseFloat(selectedOption.dataset.price) : 0;
-        const quantity = parseInt(quantityInput.value) || 0;
-        
-        const itemTotal = price * quantity;
-        if (itemTotalDisplay) {
-            itemTotalDisplay.value = formatUgxJS(itemTotal);
-        }
-        updateGrandTotal();
-    }
-
-    function updateGrandTotal() {
-        let grandTotal = 0;
+    function calculateAllTotals() {
+        let currentSubTotal = 0;
         productItemsContainer.querySelectorAll('.product-row').forEach(row => {
             const productSelect = row.querySelector('.product-select');
             const quantityInput = row.querySelector('.quantity-input');
+            const itemTotalDisplay = row.querySelector('.item-total-display');
+            
             const selectedOption = productSelect.options[productSelect.selectedIndex];
-            if (selectedOption && selectedOption.value) { 
-                const price = (selectedOption.dataset && selectedOption.dataset.price) ? parseFloat(selectedOption.dataset.price) : 0;
-                const quantity = parseInt(quantityInput.value) || 0;
-                grandTotal += price * quantity;
-            }
+            const price = (selectedOption && selectedOption.dataset.price) ? parseFloat(selectedOption.dataset.price) : 0;
+            const quantity = parseInt(quantityInput.value) || 0;
+            const itemTotal = price * quantity;
+
+            if(itemTotalDisplay) itemTotalDisplay.value = formatUgxJS(itemTotal);
+            currentSubTotal += itemTotal;
         });
-        if (runningTotalEl) { // Check if element exists
-             runningTotalEl.textContent = formatUgxJS(grandTotal);
-        }
+
+        if(subTotalDisplayEl) subTotalDisplayEl.textContent = formatUgxJS(currentSubTotal);
+        
+        // For now, grand total is the same as subtotal. Add discounts/taxes later.
+        const grandTotal = currentSubTotal;
+        if(grandTotalDisplayEl) grandTotalDisplayEl.textContent = formatUgxJS(grandTotal);
+
+        const amountPaid = parseFloat(amountPaidInputEl.value) || 0;
+        const balanceDue = grandTotal - amountPaid;
+        if(balanceDueDisplayEl) balanceDueDisplayEl.textContent = formatUgxJS(balanceDue);
     }
+
 
     function addRowEventListeners(row) {
         const productSelect = row.querySelector('.product-select');
         const quantityInput = row.querySelector('.quantity-input');
         
-        if(productSelect) productSelect.addEventListener('change', () => updateRowTotals(row));
-        if(quantityInput) quantityInput.addEventListener('input', () => updateRowTotals(row));
+        if(productSelect) productSelect.addEventListener('change', () => calculateAllTotals());
+        if(quantityInput) quantityInput.addEventListener('input', () => calculateAllTotals());
         
         const removeBtn = row.querySelector('.remove-product-row-btn');
         if (removeBtn) {
             removeBtn.addEventListener('click', function() {
                 if (productItemsContainer.querySelectorAll('.product-row').length > 1) {
                     this.closest('.product-row').remove();
-                    updateGrandTotal();
+                    calculateAllTotals();
                 } else {
                     alert("At least one product item is required.");
                 }
             });
-            removeBtn.style.display = 'inline-block'; // Make sure it's visible
+            removeBtn.style.display = 'inline-block';
         }
     }
 
-    if (addProductRowBtn) { // Check if button exists
+    if (addProductRowBtn) {
         addProductRowBtn.addEventListener('click', function() {
-            if (!productRowTemplateEl) {
-                console.error("Product row template not found!");
-                return;
-            }
+            if (!productRowTemplateEl) return;
             const templateContent = productRowTemplateEl.content.cloneNode(true);
-            const newRowDiv = templateContent.querySelector('.product-row'); 
-            
-            if (!newRowDiv) {
-                console.error("Cloned template does not contain .product-row");
-                return;
-            }
+            const newRowDiv = templateContent.querySelector('.product-row');
+            if (!newRowDiv) return;
             
             const newProductSelect = newRowDiv.querySelector('.product-select');
-            if (newProductSelect && productCategoryFilterEl) {
-                 populateProductSelect(newProductSelect, productCategoryFilterEl.value);
-            } else if (newProductSelect) {
-                 populateProductSelect(newProductSelect); // No category filter available
-            }
-
+            if (newProductSelect) populateProductSelect(newProductSelect, productCategoryFilterEl ? productCategoryFilterEl.value : "");
 
             productItemsContainer.appendChild(newRowDiv);
-            const appendedRow = productItemsContainer.lastElementChild; // Get the actual appended element
-            if (appendedRow && appendedRow.matches('.product-row')) { // Ensure it's the correct element
+            const appendedRow = productItemsContainer.lastElementChild;
+            if (appendedRow && appendedRow.matches('.product-row')) {
                 addRowEventListeners(appendedRow);
             }
-            updateGrandTotal(); 
+            calculateAllTotals();
         });
     }
 
-    if (productCategoryFilterEl) { // Check if filter exists
+    if (productCategoryFilterEl) {
         productCategoryFilterEl.addEventListener('change', function() {
             const selectedCategory = this.value;
             productItemsContainer.querySelectorAll('.product-row .product-select').forEach(selectEl => {
-                const currentVal = selectEl.value; 
                 populateProductSelect(selectEl, selectedCategory);
-                // Try to reselect if the product is still in the filtered list and was previously selected
-                const stillExists = Array.from(selectEl.options).some(opt => opt.value === currentVal);
-                if (currentVal && stillExists) {
-                    selectEl.value = currentVal;
-                } else if (selectEl.options.length > 1 && !selectEl.value) { // If nothing selected and options exist (besides "Select Product")
-                    // selectEl.value = selectEl.options[1].value; // Optionally select the first actual product
-                } else if (!selectEl.value) {
-                     selectEl.value = ""; // Ensure "Select Product" is chosen if currentVal no longer valid
-                }
-                // Important: After changing selection or options, update individual row total
-                updateRowTotals(selectEl.closest('.product-row'));
+                // After repopulating, the previous selection might be lost or invalid,
+                // so we need to ensure totals are updated based on new state.
+                // The 'change' event on selectEl itself should trigger updateRowTotals if it's still wired.
+                // Or call it explicitly:
+                calculateAllTotals(); // This will re-evaluate all rows
             });
-            updateGrandTotal(); // Then update grand total
         });
     }
+    
+    if(amountPaidInputEl) amountPaidInputEl.addEventListener('input', calculateAllTotals);
 
-    // Initial setup for the first row (if it exists)
+
+    // Initial setup for the first row
     const initialRow = productItemsContainer.querySelector('.product-row');
     if (initialRow) {
         const initialProductSelect = initialRow.querySelector('.product-select');
         if (initialProductSelect) {
-            populateProductSelect(initialProductSelect, productCategoryFilterEl ? productCategoryFilterEl.value : ""); 
+            populateProductSelect(initialProductSelect, productCategoryFilterEl ? productCategoryFilterEl.value : "");
             addRowEventListeners(initialRow);
-            
             const initialRemoveBtn = initialRow.querySelector('.remove-product-row-btn');
-            if (initialRemoveBtn) { // Hide remove button for the very first row if it's the only one
-                 initialRemoveBtn.style.display = (productItemsContainer.querySelectorAll('.product-row').length === 1) ? 'none' : 'inline-block';
-            }
+            if (initialRemoveBtn) initialRemoveBtn.style.display = 'none';
         }
-        updateGrandTotal();
+        calculateAllTotals();
     }
 
-
     const addTransactionFormEl = document.getElementById('addTransactionForm');
-    if (addTransactionFormEl) { // Check if form exists
+    if (addTransactionFormEl) {
         addTransactionFormEl.addEventListener('submit', function(event) {
             let validProductSelected = false;
             let stockError = false;
@@ -314,15 +330,15 @@ document.addEventListener('DOMContentLoaded', function() {
             productItemsContainer.querySelectorAll('.product-row').forEach(row => {
                 const productSelect = row.querySelector('.product-select');
                 const quantityInput = row.querySelector('.quantity-input');
-                if (productSelect && productSelect.value) { 
+                if (productSelect && productSelect.value) {
                     validProductSelected = true;
                     const selectedOption = productSelect.options[productSelect.selectedIndex];
                     const stock = parseInt(selectedOption.dataset.stock);
                     const quantity = parseInt(quantityInput.value);
                     const productName = selectedOption.dataset.name;
-                    if (quantity <=0) {
+                    if (quantity <= 0) {
                         alert(`Quantity for '${productName}' must be greater than 0.`);
-                        quantityError = true; 
+                        quantityError = true;
                     } else if (quantity > stock) {
                         alert(`Not enough stock for '${productName}'. Available: ${stock}, Requested: ${quantity}.`);
                         stockError = true;
@@ -330,18 +346,38 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
             });
 
-            if (!validProductSelected) {
-                alert('Please select at least one product for the transaction.');
+            if (!validProductSelected && productItemsContainer.querySelectorAll('.product-row').length > 0) {
+                 // Check if there's at least one row, but no product selected in any
+                const anyRowHasSelection = Array.from(productItemsContainer.querySelectorAll('.product-row .product-select')).some(s => s.value !== "");
+                if (!anyRowHasSelection) {
+                    alert('Please select at least one product for the transaction.');
+                    event.preventDefault();
+                    return;
+                }
+            } else if (productItemsContainer.querySelectorAll('.product-row').length === 0){
+                 alert('Please add at least one product to the transaction.');
+                 event.preventDefault();
+                 return;
+            }
+
+
+            if (stockError || quantityError) {
                 event.preventDefault();
                 return;
             }
-            if (stockError || quantityError) {
-                event.preventDefault(); 
+            
+            // Check if amount paid is at least 0
+            const amountPaid = parseFloat(amountPaidInputEl.value);
+            if (isNaN(amountPaid) || amountPaid < 0) {
+                alert('Amount paid must be a valid number and cannot be negative.');
+                event.preventDefault();
+                amountPaidInputEl.focus();
                 return;
             }
 
+
             const saveBtn = document.getElementById('saveTransactionBtn');
-            if (saveBtn) { // Check if save button exists
+            if (saveBtn) {
                 saveBtn.disabled = true;
                 saveBtn.innerHTML = `<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Processing...`;
             }

@@ -743,42 +743,60 @@ def add_transaction():
         flash("Database connection failed.", "danger")
         return redirect(url_for('transactions'))
 
-    # Fetch categories for product filtering (for GET request)
-    # Fetching all products and customers is done before rendering the form on GET
-    # or after a POST error.
-    
+    form_data_on_error = {} # To repopulate form on POST error
+
     if request.method == 'POST':
         try:
+            customer_selection_type = request.form.get('customer_selection_type') # Not directly used but good to know
             customer_id_form = request.form.get('customer_id')
+            new_customer_name = request.form.get('new_customer_name', '').strip()
             payment_method = request.form.get('payment_method')
             notes = request.form.get('notes')
-            
+            amount_paid_str = request.form.get('amount_paid')
+
             product_ids = request.form.getlist('product_id[]')
             quantities = request.form.getlist('quantity[]')
 
-            # --- Form data to pass back on error ---
             form_data_on_error = {
                 'selected_customer_id': customer_id_form,
+                'new_customer_name_text': new_customer_name,
                 'selected_payment_method': payment_method,
                 'notes_text': notes,
-                'items': [] # We'll reconstruct this if needed
+                'amount_paid_val': amount_paid_str
             }
-            # This is a bit tricky to pass back dynamic product rows perfectly.
-            # For now, we'll just re-fetch all products/customers.
+            
+            final_customer_id = None
+            if customer_id_form:
+                final_customer_id = int(customer_id_form)
+            elif new_customer_name:
+                # Create new customer or find existing by name (simplistic find for now)
+                existing_customer_res = supabase.table('customers').select('id').eq('name', new_customer_name).maybe_single().execute()
+                if existing_customer_res.data:
+                    final_customer_id = existing_customer_res.data['id']
+                    flash(f"Existing customer '{new_customer_name}' selected.", "info")
+                else:
+                    # Consider adding phone/email if you collect them for new customers
+                    new_cust_payload = {'name': new_customer_name} 
+                    created_customer_res = supabase.table('customers').insert(new_cust_payload).execute()
+                    if created_customer_res.data:
+                        final_customer_id = created_customer_res.data[0]['id']
+                        flash(f"New customer '{new_customer_name}' created and selected.", "success")
+                    else:
+                        flash("Failed to create new customer.", "danger")
+                        # Proceed without customer or re-render (for now proceed without)
 
-            if not product_ids or not any(pid for pid in product_ids if pid): # Check if any valid product selected
+            if not product_ids or not any(pid for pid in product_ids if pid):
                 flash("Please select at least one product.", "danger")
-                # Re-fetch data needed for the form
-                customers_resp = supabase.table('customers').select('id, name, phone_number').order('name').execute()
-                # Fetch active and in-stock products
-                products_resp = supabase.table('products').select('id, name, price, stock, category').eq('status', True).gt('stock', 0).order('name').execute()
-                categories_resp = supabase.table('products').select('category', count='exact').group('category').execute()
-                
-                return render_template('add_transaction.html', 
-                                     customers=customers_resp.data or [], 
-                                     products=products_resp.data or [],
-                                     categories=[cat['category'] for cat in categories_resp.data] if categories_resp.data else [],
-                                     form_data=form_data_on_error) # Pass back some form data
+                raise ValueError("No products selected") # Trigger except block to re-render form
+
+            try:
+                amount_paid = float(amount_paid_str) if amount_paid_str else 0.0
+                if amount_paid < 0:
+                    flash("Amount paid cannot be negative.", "danger")
+                    raise ValueError("Negative amount paid")
+            except ValueError:
+                flash("Invalid amount paid. Please enter a valid number.", "danger")
+                raise ValueError("Invalid amount paid")
 
 
             transaction_items_to_insert = []
@@ -786,131 +804,96 @@ def add_transaction():
             product_stock_updates = []
 
             for i, product_id_str in enumerate(product_ids):
-                if not product_id_str: continue 
-
+                if not product_id_str: continue
                 product_id = int(product_id_str)
                 quantity = int(quantities[i])
 
                 if quantity <= 0:
-                    flash(f"Quantity for product ID {product_id} must be positive.", "danger")
-                    customers_resp = supabase.table('customers').select('id, name, phone_number').order('name').execute()
-                    products_resp = supabase.table('products').select('id, name, price, stock, category').eq('status', True).gt('stock', 0).order('name').execute()
-                    categories_resp = supabase.table('products').select('category', count='exact').group('category').execute()
-                    return render_template('add_transaction.html', customers=customers_resp.data or [], products=products_resp.data or [], categories=[cat['category'] for cat in categories_resp.data] if categories_resp.data else [], form_data=form_data_on_error)
+                    flash(f"Quantity for a selected product must be positive.", "danger")
+                    raise ValueError("Invalid quantity")
 
                 product_info_res = supabase.table('products').select('price, stock, name').eq('id', product_id).eq('status', True).maybe_single().execute()
                 if not product_info_res.data:
-                    flash(f"Active product with ID {product_id} not found.", "danger")
-                    customers_resp = supabase.table('customers').select('id, name, phone_number').order('name').execute()
-                    products_resp = supabase.table('products').select('id, name, price, stock, category').eq('status', True).gt('stock', 0).order('name').execute()
-                    categories_resp = supabase.table('products').select('category', count='exact').group('category').execute()
-                    return render_template('add_transaction.html', customers=customers_resp.data or [], products=products_resp.data or [], categories=[cat['category'] for cat in categories_resp.data] if categories_resp.data else [], form_data=form_data_on_error)
-
+                    flash(f"Active product with ID {product_id} not found or out of stock.", "danger")
+                    raise ValueError("Product not found or OOS")
+                
                 product_price = product_info_res.data['price']
                 current_stock = product_info_res.data['stock']
                 product_name = product_info_res.data['name']
 
                 if quantity > current_stock:
                     flash(f"Not enough stock for '{product_name}'. Available: {current_stock}, Requested: {quantity}.", "danger")
-                    customers_resp = supabase.table('customers').select('id, name, phone_number').order('name').execute()
-                    products_resp = supabase.table('products').select('id, name, price, stock, category').eq('status', True).gt('stock', 0).order('name').execute()
-                    categories_resp = supabase.table('products').select('category', count='exact').group('category').execute()
-                    return render_template('add_transaction.html', customers=customers_resp.data or [], products=products_resp.data or [], categories=[cat['category'] for cat in categories_resp.data] if categories_resp.data else [], form_data=form_data_on_error)
+                    raise ValueError("Insufficient stock")
 
                 item_total = product_price * quantity
                 grand_total += item_total
-                
-                transaction_items_to_insert.append({
-                    'product_id': product_id,
-                    'quantity': quantity,
-                    'price': product_price 
-                })
+                transaction_items_to_insert.append({'product_id': product_id, 'quantity': quantity, 'price': product_price})
                 product_stock_updates.append({'id': product_id, 'new_stock': current_stock - quantity})
 
             created_by_db_user_id = get_current_user_db_id_from_session()
             if created_by_db_user_id is None:
                 flash("Could not identify processing employee. Please log in again.", "danger")
-                customers_resp = supabase.table('customers').select('id, name, phone_number').order('name').execute()
-                products_resp = supabase.table('products').select('id, name, price, stock, category').eq('status', True).gt('stock', 0).order('name').execute()
-                categories_resp = supabase.table('products').select('category', count='exact').group('category').execute()
-                return render_template('add_transaction.html', customers=customers_resp.data or [], products=products_resp.data or [], categories=[cat['category'] for cat in categories_resp.data] if categories_resp.data else [], form_data=form_data_on_error)
+                raise ValueError("Employee not identified")
+            
+            balance_due = grand_total - amount_paid
 
             main_transaction_payload = {
                 'transaction_code': generate_transaction_code(),
                 'date': datetime.datetime.now(datetime.timezone.utc).isoformat(),
                 'total_amount': grand_total,
-                'customer_id': int(customer_id_form) if customer_id_form else None,
+                'customer_id': final_customer_id,
                 'payment_method': payment_method,
                 'notes': notes,
-                'created_by_user_id': created_by_db_user_id
+                'created_by_user_id': created_by_db_user_id,
+                'amount_paid': amount_paid, # Assuming you add this column to transactions table
+                'balance_due': balance_due    # Assuming you add this column
             }
             
-            # --- Use a database function (RPC) for atomic transaction processing ---
-            # This is the ideal way to handle inserts into multiple tables and stock updates
-            # supabase.rpc('create_transaction_with_items_and_update_stock', 
-            #              {'transaction_data': main_transaction_payload, 
-            #               'items_data': transaction_items_to_insert,
-            #               'stock_updates_data': product_stock_updates}).execute()
-            # For now, proceeding with separate calls:
-
+            # ---- Ideally, use an RPC for atomicity ----
+            # For now, separate calls:
             inserted_txn_res = supabase.table('transactions').insert(main_transaction_payload).execute()
 
             if not inserted_txn_res.data or len(inserted_txn_res.data) == 0:
                 flash("Failed to create main transaction record.", "danger")
-                customers_resp = supabase.table('customers').select('id, name, phone_number').order('name').execute()
-                products_resp = supabase.table('products').select('id, name, price, stock, category').eq('status', True).gt('stock', 0).order('name').execute()
-                categories_resp = supabase.table('products').select('category', count='exact').group('category').execute()
-                return render_template('add_transaction.html', customers=customers_resp.data or [], products=products_resp.data or [], categories=[cat['category'] for cat in categories_resp.data] if categories_resp.data else [], form_data=form_data_on_error)
+                raise Exception("Transaction insert failed")
 
             new_transaction_id = inserted_txn_res.data[0]['id']
 
-            for item in transaction_items_to_insert:
-                item['transaction_id'] = new_transaction_id
-            
+            for item in transaction_items_to_insert: item['transaction_id'] = new_transaction_id
             items_insert_res = supabase.table('transaction_items').insert(transaction_items_to_insert).execute()
             if not items_insert_res.data and len(transaction_items_to_insert) > 0:
-                flash(f"Transaction #{inserted_txn_res.data[0]['transaction_code']} created, but failed to record items! Please review manually.", "danger")
-                # Consider logging this critical failure or attempting rollback logic if possible (complex without DB transaction)
+                flash(f"Transaction #{inserted_txn_res.data[0]['transaction_code']} created, but failed to record items! Review manually.", "danger")
 
             for stock_update in product_stock_updates:
-                stock_update_res = supabase.table('products').update({'stock': stock_update['new_stock']}).eq('id', stock_update['id']).execute()
-                if not stock_update_res.data:
-                    flash(f"Failed to update stock for product ID {stock_update['id']}. Please check manually.", "warning")
-
+                supabase.table('products').update({'stock': stock_update['new_stock']}).eq('id', stock_update['id']).execute()
 
             flash(f"Transaction #{inserted_txn_res.data[0]['transaction_code']} created successfully!", "success")
             return redirect(url_for('transactions'))
 
+        except ValueError as ve: # Catch specific validation errors to re-render form
+            pass # Flash message already set, will fall through to GET rendering
         except Exception as e:
             print(f"Error adding transaction: {type(e).__name__} - {e}")
             import traceback
             traceback.print_exc()
-            flash("An error occurred while adding the transaction. Please check details and try again.", "danger")
-            # Fall through to GET to re-render form with error, re-fetching necessary data
+            flash("An unexpected error occurred. Please check details and try again.", "danger")
+            # Fall through to GET rendering
 
-    # GET request or POST failed - show the form
+    # GET request or POST error - show the form
     try:
         customers_resp = supabase.table('customers').select('id, name, phone_number').order('name').execute()
-        # Only fetch active products with stock > 0
         products_resp = supabase.table('products').select('id, name, price, stock, category').eq('status', True).gt('stock', 0).order('category').order('name').execute()
-        # Fetch distinct categories from active, in-stock products
-        # This is a bit inefficient. Better to get categories from products_resp if large.
-        # Or, if categories are fixed, define them in Python or a separate table.
-        # For now, fetching distinct categories from available products:
         available_categories = sorted(list(set(p['category'] for p in products_resp.data if p['category']))) if products_resp.data else []
-
-    except Exception as e:
-        print(f"Error fetching data for add transaction form: {e}")
+    except Exception as e_fetch:
+        print(f"Error fetching data for add transaction form: {e_fetch}")
         flash("Could not load data needed for the transaction form.", "warning")
-        customers_resp = {'data': []}
-        products_resp = {'data': []}
-        available_categories = []
+        customers_resp = {'data': []}; products_resp = {'data': []}; available_categories = []
 
     return render_template('add_transaction.html', 
                          customers=customers_resp.data or [], 
                          products=products_resp.data or [],
                          categories=available_categories,
-                         form_data=getattr(request, 'form_data_on_error', {})) # Pass back form data if it was set
+                         form_data=form_data_on_error)
 
 @app.route('/employees')
 @login_required
