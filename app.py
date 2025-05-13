@@ -1574,39 +1574,49 @@ def delete_user(user_id):
         flash("An error occurred while deleting the user.", "danger")
         return redirect(url_for('users'))     
     
-# --- API endpoint to get all products (used by products.html JS) ---
+# app.py -> get_products() route
 @app.route('/api/products', methods=['GET'])
 @login_required
 def get_products():
     if not check_supabase():
         return jsonify({'error': 'Database connection failed'}), 500
     try:
-        response = supabase.table('products') \
-            .select('*, category:categories(id, name)') \
-            .order('name') \
+        response = ( # Use parentheses for multi-line statement grouping
+            supabase.table('products')
+            .select('*, category_data:categories(id, name)') # Ensure comment is aligned or on its own line
+            .order('name') # This line should align with .select or be indented consistently
             .execute()
+        )
         
         products_list = []
         if response.data:
             for p_data in response.data:
-                category_info = p_data.get('category')
+                # print(f"--- DEBUG API: Raw p_data from Supabase: {p_data}")
+                
+                category_info_object = p_data.get('category_data')
+                
+                # print(f"--- DEBUG API: category_info_object: {category_info_object}")
+
                 products_list.append({
                     'id': p_data['id'],
                     'name': p_data['name'],
                     'sku': p_data.get('sku'),
-                    'category_id': category_info['id'] if category_info else None,
-                    'category_name': category_info['name'] if category_info else 'Uncategorized',
+                    'category_id': category_info_object['id'] if category_info_object else p_data.get('category_id'),
+                    'category_name': category_info_object['name'] if category_info_object else 'Uncategorized',
                     'price': p_data['price'],
                     'stock': p_data.get('stock', 0),
-                    'status': 'active' if p_data.get('status') else 'inactive', # Assuming status is boolean true/false
+                    'status': 'active' if p_data.get('status') else 'inactive', 
                     'description': p_data.get('description'),
                     'image_url': p_data.get('image_url'),
                     'created_at': p_data.get('created_at'),
                     'updated_at': p_data.get('updated_at')
                 })
+        # print(f"--- DEBUG API: Final products_list: {products_list}")
         return jsonify(products_list)
     except Exception as e:
         print(f"Error fetching products API: {type(e).__name__} - {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({"error": "Failed to fetch products"}), 500
 
 # Get a single product
