@@ -1618,6 +1618,44 @@ def get_products():
         import traceback
         traceback.print_exc()
         return jsonify({"error": "Failed to fetch products"}), 500
+# API endpoint to GET all products (called by JavaScript on products.html)
+@app.route('/api/products', methods=['GET'])
+@login_required
+def get_products_api(): # Renamed to distinguish from the page route
+    if not check_supabase():
+        return jsonify({'error': 'Database connection failed'}), 500
+    try:
+        response = (
+            supabase.table('products')
+            .select('*, category_data:categories(id, name)') # Join with categories
+            .order('name')
+            .execute()
+        )
+        
+        products_list_for_json = []
+        if response.data:
+            for p_data in response.data:
+                category_info = p_data.get('category_data')
+                products_list_for_json.append({
+                    'id': p_data['id'],
+                    'name': p_data['name'],
+                    'sku': p_data.get('sku'),
+                    'category_id': category_info['id'] if category_info else None,
+                    'category_name': category_info['name'] if category_info else 'Uncategorized',
+                    'price': p_data['price'],
+                    'stock': p_data.get('stock', 0),
+                    'status': 'active' if p_data.get('status') else 'inactive', # Ensure boolean status from DB is converted
+                    'description': p_data.get('description'),
+                    'image_url': p_data.get('image_url'),
+                    # 'created_at': p_data.get('created_at'), # Optional for display
+                    # 'updated_at': p_data.get('updated_at')  # Optional for display
+                })
+        return jsonify(products_list_for_json)
+    except Exception as e:
+        print(f"Error fetching products API: {type(e).__name__} - {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": "Failed to fetch products"}), 500        
 
 # Get a single product
 @app.route('/api/products/<int:product_id>', methods=['GET'])

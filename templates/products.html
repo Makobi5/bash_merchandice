@@ -2,36 +2,41 @@
 
 {% block title %}Products - Bash Merchandise Manager{% endblock %}
 
+{% block styles %}
+<style>
+    .product-thumbnail { width: 40px; height: 40px; object-fit: cover; border-radius: 4px; }
+    .stock-normal { color: #198754; font-weight: 500; }
+    .stock-warning { color: #ffc107; font-weight: 500; }
+    .stock-danger { color: #dc3545; font-weight: 700; }
+    .table th { background-color: #f8f9fa; }
+    .table tr:hover { background-color: rgba(0, 123, 255, 0.05); }
+    .text-danger { color: #dc3545 !important; }
+    #currentProductImagePreview {
+        width: 120px; height: 120px; object-fit: cover;
+        border: 1px solid #dee2e6; border-radius: .25rem;
+        display: block; margin-top: 5px; margin-bottom: 10px;
+    }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
     <h1>Products</h1>
     <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addProductModal">
-        <i class="bi bi-plus"></i> Add New Product
+        <i class="bi bi-plus-circle-fill"></i> Add New Product
     </button>
 </div>
 
-<!-- Products Container -->
 <div class="card mb-4">
     <div class="card-header d-flex justify-content-between align-items-center">
-        <span><span class="product-count">0</span> products</span> <!-- Initial count will be updated by JS -->
+        <span><span class="product-count">0</span> products</span>
         <div class="d-flex gap-2">
-            <input type="text" class="form-control" placeholder="Search products..." id="productSearch">
-            <select class="form-select" id="categoryFilter">
+            <input type="text" class="form-control form-control-sm" placeholder="Search products..." id="productSearchInput">
+            <select class="form-select form-select-sm" id="categoryTableFilterSelect">
                 <option value="">All Categories</option>
-                <option value="Electronics">Electronics</option>
-                <option value="Clothing">Clothing</option>
-                <option value="Groceries">Groceries</option>
-                <option value="Home & Kitchen">Home & Kitchen</option>
-                <option value="Beauty & Personal Care">Beauty & Personal Care</option>
-                <option value="Stationery">Stationery</option>
-                <option value="Mobile Phones & Accessories">Mobile Phones & Accessories</option>
-                <option value="Agriculture">Agriculture</option>
-                <option value="Hardware & Tools">Hardware & Tools</option>
-                <option value="Auto Parts">Auto Parts</option>
-                <option value="Traditional Crafts">Traditional Crafts</option>
-                <option value="Baby Products">Baby Products</option>
-                <option value="Health & Medicine">Health & Medicine</option>
-                <option value="Books">Books</option>
+                {% for cat in categories_list %} {# Use categories_list passed from Flask #}
+                    <option value="{{ cat.name }}">{{ cat.name }}</option> {# Filter by name #}
+                {% endfor %}
             </select>
         </div>
     </div>
@@ -40,40 +45,26 @@
             <table class="table table-hover mb-0">
                 <thead>
                     <tr>
-                        <th scope="col">ID</th>
-                        <th scope="col">Image</th>
-                        <th scope="col">Product Name</th>
-                        <th scope="col">SKU</th>
-                        <th scope="col">Category</th>
-                        <th scope="col" class="text-end">Unit Price</th>
-                        <th scope="col" class="text-center">Stock</th>
-                        <th scope="col">Status</th>
-                        <th scope="col" class="text-end">Actions</th>
+                        <th>#</th><th>Image</th><th>Product Name</th><th>SKU</th>
+                        <th>Category</th><th class="text-end">Unit Price</th>
+                        <th class="text-center">Stock</th><th>Status</th>
+                        <th class="text-end">Actions</th>
                     </tr>
                 </thead>
                 <tbody id="productsTableBody">
-                    <!-- Product rows will be dynamically inserted here by JavaScript -->
-                    <tr>
-                        <td colspan="9" class="text-center py-4">Loading products...</td>
-                    </tr>
+                    <tr><td colspan="9" class="text-center py-4">Loading products...</td></tr>
                 </tbody>
             </table>
         </div>
     </div>
     <div class="card-footer d-flex justify-content-between align-items-center">
         <div>
-            <select class="form-select form-select-sm" id="rowsPerPage">
-                <option value="10">10 rows</option>
-                <option value="25" selected>25 rows</option>
-                <option value="50">50 rows</option>
-                <option value="100">100 rows</option>
+            <select class="form-select form-select-sm" id="rowsPerPageSelect">
+                <option value="10">10 rows</option><option value="25" selected>25 rows</option>
+                <option value="50">50 rows</option><option value="100">100 rows</option>
             </select>
         </div>
-        <nav aria-label="Product pagination">
-            <ul class="pagination pagination-sm mb-0" id="productPagination">
-                <!-- Pagination links will be dynamically inserted here -->
-            </ul>
-        </nav>
+        <nav aria-label="Product pagination"><ul class="pagination pagination-sm mb-0" id="productPaginationUl"></ul></nav>
     </div>
 </div>
 
@@ -82,238 +73,172 @@
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title" id="addProductModalLabel">Add New Product</h5>
+                <h5 class="modal-title" id="addProductModalLabelEl">Add New Product</h5> {# Changed ID #}
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body">
-                <form id="addProductForm" enctype="multipart/form-data">
+                <form id="addProductFormEl" enctype="multipart/form-data"> {# Changed ID #}
                     <div class="row mb-3">
-                        <div class="col-md-6">
-                            <label for="productName" class="form-label">Product Name <span class="text-danger">*</span></label>
-                            <input type="text" class="form-control" id="productName" name="name" required>
-                        </div>
-                        <div class="col-md-6">
-                            <label for="productSKU" class="form-label">SKU/Item Code</label>
-                            <input type="text" class="form-control" id="productSKU" name="sku">
-                        </div>
+                        <div class="col-md-6"><label for="productNameInputEl" class="form-label">Product Name <span class="text-danger">*</span></label><input type="text" class="form-control" id="productNameInputEl" name="name" required></div>
+                        <div class="col-md-6"><label for="productSKUInputEl" class="form-label">SKU/Item Code</label><input type="text" class="form-control" id="productSKUInputEl" name="sku"></div>
                     </div>
                     <div class="row mb-3">
                         <div class="col-md-6">
-                            <label for="productCategory" class="form-label">Category <span class="text-danger">*</span></label>
-                            <select class="form-select" id="productCategory" name="category" required>
+                            <label for="productCategoryModalSelectEl" class="form-label">Category <span class="text-danger">*</span></label>
+                            <select class="form-select" id="productCategoryModalSelectEl" name="category_id" required> {# NAME IS category_id #}
                                 <option value="">Select Category</option>
-                                <option value="Electronics">Electronics</option>
-                                <option value="Clothing">Clothing</option>
-                                <option value="Groceries">Groceries</option>
-                                <option value="Home & Kitchen">Home & Kitchen</option>
-                                <option value="Beauty & Personal Care">Beauty & Personal Care</option>
-                                <option value="Stationery">Stationery</option>
-                                <option value="Mobile Phones & Accessories">Mobile Phones & Accessories</option>
-                                <option value="Agriculture">Agriculture</option>
-                                <option value="Hardware & Tools">Hardware & Tools</option>
-                                <option value="Auto Parts">Auto Parts</option>
-                                <option value="Traditional Crafts">Traditional Crafts</option>
-                                <option value="Baby Products">Baby Products</option>
-                                <option value="Health & Medicine">Health & Medicine</option>
-                                <option value="Books">Books</option>
+                                {% for cat in categories_list %} {# Use categories_list passed from Flask #}
+                                    <option value="{{ cat.id }}">{{ cat.name }}</option> {# VALUE IS cat.id #}
+                                {% endfor %}
                             </select>
                         </div>
                         <div class="col-md-6">
-                            <label for="productPrice" class="form-label">Unit Price <span class="text-danger">*</span></label>
-                            <div class="input-group">
-                                <span class="input-group-text">UGX</span>
-                                <input type="number" class="form-control" id="productPrice" name="price" step="1" min="0" required>
-                            </div>
+                            <label for="productPriceInputEl" class="form-label">Unit Price <span class="text-danger">*</span></label>
+                            <div class="input-group"><span class="input-group-text">UGX</span><input type="number" class="form-control" id="productPriceInputEl" name="price" step="1" min="0" required></div>
                         </div>
                     </div>
                     <div class="row mb-3">
+                        <div class="col-md-6"><label for="productStockInputEl" class="form-label">Initial Stock <span class="text-danger">*</span></label><input type="number" class="form-control" id="productStockInputEl" name="stock" min="0" required></div>
                         <div class="col-md-6">
-                            <label for="productStock" class="form-label">Initial Stock <span class="text-danger">*</span></label>
-                            <input type="number" class="form-control" id="productStock" name="stock" min="0" required>
-                        </div>
-                        <div class="col-md-6">
-                            <label for="productStatus" class="form-label">Status <span class="text-danger">*</span></label>
-                            <select class="form-select" id="productStatus" name="status" required>
-                                <option value="active" selected>Active</option>
-                                <option value="inactive">Inactive</option>
+                            <label for="productStatusSelectEl" class="form-label">Status <span class="text-danger">*</span></label>
+                            <select class="form-select" id="productStatusSelectEl" name="status" required>
+                                <option value="active" selected>Active</option><option value="inactive">Inactive</option>
                             </select>
                         </div>
                     </div>
+                    <div class="mb-3"><label for="productDescriptionTextareaEl" class="form-label">Description</label><textarea class="form-control" id="productDescriptionTextareaEl" name="description" rows="3"></textarea></div>
+                    <div class="mb-3" id="currentImageSectionDivEl" style="display:none;"><label class="form-label">Current Image:</label><div><img id="currentProductImagePreviewEl" src="#" alt="Current Product Image"></div></div>
                     <div class="mb-3">
-                        <label for="productDescription" class="form-label">Description</label>
-                        <textarea class="form-control" id="productDescription" name="description" rows="3"></textarea>
-                    </div>
-                    <div class="mb-3" id="currentImageSection" style="display:none;">
-                        <label class="form-label">Current Image</label>
-                        <div><img id="currentProductImagePreview" src="#" alt="Current Product Image" style="max-height: 100px; max-width: 100%; border-radius: 4px; object-fit: cover;"></div>
-                    </div>
-                    <div class="mb-3">
-                        <label for="productImage" class="form-label">Product Image <small class="text-muted">(Leave blank to keep current image when editing)</small></label>
-                        <input type="file" class="form-control" id="productImage" name="image" accept="image/png, image/jpeg, image/gif">
+                        <label for="productImageInputFileEl" class="form-label">Product Image</label>
+                        <small class="text-muted d-block mb-1">(Leave blank to keep current image. Upload new to replace.)</small>
+                        <input type="file" class="form-control" id="productImageInputFileEl" name="image" accept="image/png, image/jpeg, image/gif">
                     </div>
                 </form>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-primary" id="saveProductBtn">Save Product</button>
+                <button type="button" class="btn btn-primary" id="saveProductBtnEl">Save Product</button> {# Changed ID #}
             </div>
         </div>
     </div>
 </div>
 
-<!-- Toast notification container -->
 <div class="toast-container position-fixed bottom-0 end-0 p-3" style="z-index: 1100">
-    <!-- Success Toast -->
-    <div id="successToast" class="toast align-items-center text-white bg-success border-0" role="alert" aria-live="assertive" aria-atomic="true">
-        <div class="d-flex">
-            <div class="toast-body">
-                <i class="bi bi-check-circle-fill me-2"></i>
-                <span id="toastMessage">Operation successful!</span>
-            </div>
-            <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
-        </div>
+    <div id="successProductToast" class="toast align-items-center text-white bg-success border-0" role="alert" aria-live="assertive" aria-atomic="true" data-bs-delay="3000"> {# Changed ID #}
+        <div class="d-flex"><div class="toast-body"><i class="bi bi-check-circle-fill me-2"></i><span id="successProductToastMessage"></span></div><button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button></div>
     </div>
-    <!-- Error Toast (will be created by JS if needed) -->
 </div>
 {% endblock %}
 
-{% block styles %}
-<style>
-    .product-thumbnail {
-        width: 40px;
-        height: 40px;
-        object-fit: cover;
-        border-radius: 4px;
-    }
-    .stock-normal { color: #198754; /* Bootstrap success green */ font-weight: 500; }
-    .stock-warning { color: #ffc107; /* Bootstrap warning yellow */ font-weight: 500; }
-    .stock-danger { color: #dc3545; /* Bootstrap danger red */ font-weight: 700; }
-    .table th { background-color: #f8f9fa; }
-    .table tr:hover { background-color: rgba(0, 123, 255, 0.05); /* Gentle blue hover */ }
-    .text-danger { color: #dc3545 !important; } /* Ensure asterisk for required fields is red */
-</style>
-{% endblock %}
 
 {% block scripts %}
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    // DOM elements
-    const productSearch = document.getElementById('productSearch');
-    const categoryFilter = document.getElementById('categoryFilter');
+    // DOM Element Selectors
+    const productSearchInput = document.getElementById('productSearchInput');
+    const categoryTableFilterSelect = document.getElementById('categoryTableFilterSelect');
     const productsTableBody = document.getElementById('productsTableBody');
-    // const rowsPerPageSelect = document.getElementById('rowsPerPage'); // For pagination later
-    // const paginationContainer = document.getElementById('productPagination'); // For pagination later
+    const productCountSpan = document.querySelector('.product-count');
 
     const addProductModalEl = document.getElementById('addProductModal');
-    const addProductModal = new bootstrap.Modal(addProductModalEl);
-    const addProductForm = document.getElementById('addProductForm');
-    const modalTitle = document.getElementById('addProductModalLabel');
-    const saveProductBtn = document.getElementById('saveProductBtn');
-    
-    const successToastEl = document.getElementById('successToast');
-    const bsSuccessToast = new bootstrap.Toast(successToastEl);
-    const toastMessageEl = document.getElementById('toastMessage');
+    const addProductFormEl = document.getElementById('addProductFormEl');
+    const modalTitleEl = document.getElementById('addProductModalLabelEl');
+    const saveProductBtnEl = document.getElementById('saveProductBtnEl');
 
-    const currentImageSection = document.getElementById('currentImageSection');
-    const currentProductImagePreview = document.getElementById('currentProductImagePreview');
-    const productImageInput = document.getElementById('productImage');
+    const productNameInputEl = document.getElementById('productNameInputEl');
+    const productSKUInputEl = document.getElementById('productSKUInputEl');
+    const productCategoryModalSelectEl = document.getElementById('productCategoryModalSelectEl');
+    const productPriceInputEl = document.getElementById('productPriceInputEl');
+    const productStockInputEl = document.getElementById('productStockInputEl');
+    const productStatusSelectEl = document.getElementById('productStatusSelectEl');
+    const productDescriptionTextareaEl = document.getElementById('productDescriptionTextareaEl');
+    const currentImageSectionDivEl = document.getElementById('currentImageSectionDivEl');
+    const currentProductImagePreviewEl = document.getElementById('currentProductImagePreviewEl');
+    const productImageInputFileEl = document.getElementById('productImageInputFileEl');
 
+    const successToastEl = document.getElementById('successProductToast');
+    const bsSuccessToast = successToastEl ? new bootstrap.Toast(successToastEl, { delay: 3000 }) : null;
+    const successToastMessageEl = document.getElementById('successProductToastMessage');
+    const toastContainer = document.querySelector('.toast-container');
 
-    let allProducts = []; // Store all fetched products
-    let currentProductId = null; // For tracking which product is being edited
+    let allProducts = [];
+    let currentProductId = null;
+    let addProductModalInstance = addProductModalEl ? new bootstrap.Modal(addProductModalEl) : null;
 
-    // --- UTILITY FUNCTIONS ---
-    function showSuccessToast(message) {
-        toastMessageEl.textContent = message;
-        bsSuccessToast.show();
-    }
-
-    function showErrorToast(message) {
-        const toastContainer = document.querySelector('.toast-container');
-        let errorToastEl = document.getElementById('errorToast');
-        if (!errorToastEl) {
-            const errorToastHTML = `
-                <div id="errorToast" class="toast align-items-center text-white bg-danger border-0" role="alert" aria-live="assertive" aria-atomic="true">
-                    <div class="d-flex">
-                        <div class="toast-body">
-                            <i class="bi bi-exclamation-triangle-fill me-2"></i>
-                            <span id="errorToastMessage">${message}</span>
+    function showToast(message, type = 'success') {
+        if (type === 'success' && bsSuccessToast && successToastMessageEl) {
+            successToastMessageEl.textContent = message;
+            bsSuccessToast.show();
+        } else if (type === 'error' && toastContainer) {
+            let errorToastEl = document.getElementById('errorProductToast'); // Specific ID for error
+            if (!errorToastEl) {
+                const errorToastHTML = `
+                    <div id="errorProductToast" class="toast align-items-center text-white bg-danger border-0" role="alert" aria-live="assertive" aria-atomic="true" data-bs-delay="5000">
+                        <div class="d-flex">
+                            <div class="toast-body"><i class="bi bi-exclamation-triangle-fill me-2"></i><span id="errorProductToastMessage">${message}</span></div>
+                            <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
                         </div>
-                        <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
-                    </div>
-                </div>`;
-            toastContainer.insertAdjacentHTML('beforeend', errorToastHTML);
-            errorToastEl = document.getElementById('errorToast');
-        } else {
-            errorToastEl.querySelector('#errorToastMessage').textContent = message;
+                    </div>`;
+                toastContainer.insertAdjacentHTML('beforeend', errorToastHTML);
+                errorToastEl = document.getElementById('errorProductToast');
+            } else {
+                const errorMsgSpan = errorToastEl.querySelector('#errorProductToastMessage');
+                if(errorMsgSpan) errorMsgSpan.textContent = message;
+            }
+            if(errorToastEl) new bootstrap.Toast(errorToastEl, { delay: 5000 }).show();
         }
-        const bsErrorToast = new bootstrap.Toast(errorToastEl);
-        bsErrorToast.show();
     }
     
-    function resetForm() {
-        addProductForm.reset(); // Resets most form fields
-        productImageInput.value = null; // Explicitly clear file input
+    function resetModalForm() {
+        if(addProductFormEl) addProductFormEl.reset();
+        if(productImageInputFileEl) productImageInputFileEl.value = null;
         currentProductId = null;
-        modalTitle.textContent = 'Add New Product';
-        currentImageSection.style.display = 'none';
-        currentProductImagePreview.src = '#';
-        // Clear any validation states if you add them
+        if(modalTitleEl) modalTitleEl.textContent = 'Add New Product';
+        if(currentImageSectionDivEl) currentImageSectionDivEl.style.display = 'none';
+        if(currentProductImagePreviewEl) currentProductImagePreviewEl.src = '#';
+        if(productCategoryModalSelectEl) productCategoryModalSelectEl.value = "";
     }
 
-    // --- DATA FETCHING AND RENDERING ---
     async function fetchProducts() {
         try {
             const response = await fetch('/api/products');
             if (!response.ok) {
-                const errorData = await response.json().catch(() => ({ error: 'Failed to fetch products' }));
-                throw new Error(errorData.error || 'Server error');
+                const errorData = await response.json().catch(() => ({ error: `HTTP error! status: ${response.status}` }));
+                throw new Error(errorData.error || `Failed to fetch products`);
             }
-            allProducts = await response.json();
-            
-            // Reset product IDs to ensure they always start from 1
-            allProducts = allProducts.map((product, index) => {
-                return {...product, display_id: index + 1};
-            });
-            
-            renderProducts();
+            const productsFetched = await response.json();
+            allProducts = productsFetched.map((product, index) => ({...product, display_id: index + 1 }));
+            renderProductTable();
         } catch (error) {
             console.error('Error fetching products:', error);
-            showErrorToast(`Error fetching products: ${error.message}`);
-            productsTableBody.innerHTML = `<tr><td colspan="9" class="text-center py-4">Could not load products.</td></tr>`;
+            showToast(`Error fetching products: ${error.message}`, 'error');
+            if(productsTableBody) productsTableBody.innerHTML = `<tr><td colspan="9" class="text-center py-4">Could not load products.</td></tr>`;
         }
     }
 
-    function filterAndSortProducts() {
-        const searchTerm = productSearch.value.toLowerCase();
-        const category = categoryFilter.value;
-        
-        let filtered = allProducts.filter(product => {
+    function getFilteredProducts() {
+        const searchTerm = productSearchInput ? productSearchInput.value.toLowerCase() : "";
+        const categoryNameToFilter = categoryTableFilterSelect ? categoryTableFilterSelect.value : "";
+
+        return allProducts.filter(product => {
             const nameMatch = product.name.toLowerCase().includes(searchTerm);
             const skuMatch = product.sku ? product.sku.toLowerCase().includes(searchTerm) : false;
-            const categoryMatch = category === '' || product.category === category;
+            const categoryMatch = categoryNameToFilter === "" || product.category_name === categoryNameToFilter;
             return (nameMatch || skuMatch) && categoryMatch;
-        });
-        
-        // Sort by display_id (sequential ID) ascending
-        filtered.sort((a, b) => a.display_id - b.display_id);
-        return filtered;
+        }).sort((a, b) => a.display_id - b.display_id);
+    }
+    
+    function formatUgxCurrency(amount) {
+        const num = parseFloat(amount);
+        return !isNaN(num) ? new Intl.NumberFormat('en-UG', { style: 'currency', currency: 'UGX', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(num) : 'UGX 0';
     }
 
-    function formatCurrency(amount) {
-        // Format as UGX currency with comma separators for thousands
-        return new Intl.NumberFormat('en-UG', {
-            minimumFractionDigits: 0,
-            maximumFractionDigits: 0
-        }).format(amount);
-    }
+    function renderProductTable() {
+        const filteredProducts = getFilteredProducts();
+        if(productCountSpan) productCountSpan.textContent = filteredProducts.length;
+        if(!productsTableBody) return;
 
-    function renderProducts() {
-        const filteredProducts = filterAndSortProducts();
-        document.querySelector('.product-count').textContent = filteredProducts.length;
-        
-        productsTableBody.innerHTML = ''; // Clear existing rows
-        
+        productsTableBody.innerHTML = '';
         if (filteredProducts.length === 0) {
             productsTableBody.innerHTML = `<tr><td colspan="9" class="text-center py-4">No products found.</td></tr>`;
             return;
@@ -321,165 +246,172 @@ document.addEventListener('DOMContentLoaded', function() {
         
         filteredProducts.forEach(product => {
             let stockClass = 'stock-normal';
-            if (product.stock <= 0) stockClass = 'stock-danger';
-            else if (product.stock <= 5) stockClass = 'stock-danger'; // Low stock threshold
-            else if (product.stock <= 10) stockClass = 'stock-warning'; // Warning threshold
+            if (product.stock <= 0) stockClass = 'stock-danger text-danger fw-bold';
+            else if (product.stock <= 5) stockClass = 'stock-danger text-danger';
+            else if (product.stock <= 10) stockClass = 'stock-warning text-warning';
             
-            const statusBadge = product.status === 'active' 
-                ? `<span class="badge bg-success">Active</span>` 
-                : `<span class="badge bg-secondary">Inactive</span>`;
+            const statusText = product.status === 'active' ? 'Active' : 'Inactive';
+            const statusBadgeClass = product.status === 'active' ? 'bg-success' : 'bg-secondary';
+            const statusBadge = `<span class="badge ${statusBadgeClass}">${statusText}</span>`;
             
-            // Use placeholder if image_url is missing
-            const imageUrl = product.image_url || '/static/images/placeholder_product.png'; // Ensure you have this placeholder
+            const imageUrl = product.image_url || '/static/images/placeholder_product.png';
+            const categoryDisplayName = product.category_name || 'Uncategorized'; // CORRECTLY USE category_name
 
-            const row = `
-                <tr data-id="${product.id}" data-display-id="${product.display_id}">
-                    <td>${product.display_id}</td>
+            const rowHTML = `
+                <tr data-id="${product.id}"> {# Keep original DB ID here for actions #}
+                    <td>${product.display_id}</td> {# Display sequential ID #}
                     <td><img src="${imageUrl}" alt="${product.name}" class="product-thumbnail"></td>
                     <td>${product.name}</td>
                     <td>${product.sku || 'N/A'}</td>
-                    <td>${product.category}</td>
-                    <td class="text-end">UGX ${formatCurrency(product.price)}</td>
+                    <td>${categoryDisplayName}</td> {# DISPLAYING category_name #}
+                    <td class="text-end">${formatUgxCurrency(product.price)}</td>
                     <td class="text-center ${stockClass}">${product.stock}</td>
                     <td>${statusBadge}</td>
                     <td class="text-end">
                         <button class="btn btn-sm btn-outline-primary me-1 edit-product-btn" title="Edit"><i class="bi bi-pencil-fill"></i></button>
                         <button class="btn btn-sm btn-outline-danger delete-product-btn" title="Delete"><i class="bi bi-trash-fill"></i></button>
                     </td>
-                </tr>
-            `;
-            productsTableBody.insertAdjacentHTML('beforeend', row);
+                </tr>`;
+            productsTableBody.insertAdjacentHTML('beforeend', rowHTML);
         });
-        attachActionListeners();
+        attachTableActionListeners();
     }
 
-    function attachActionListeners() {
-        document.querySelectorAll('.edit-product-btn').forEach(btn => {
-            btn.addEventListener('click', handleEditProduct);
+    function attachTableActionListeners() {
+        productsTableBody.querySelectorAll('.edit-product-btn').forEach(btn => {
+            btn.removeEventListener('click', handleEditProductClick);
+            btn.addEventListener('click', handleEditProductClick);
         });
-        document.querySelectorAll('.delete-product-btn').forEach(btn => {
-            btn.addEventListener('click', handleDeleteProduct);
+        productsTableBody.querySelectorAll('.delete-product-btn').forEach(btn => {
+            btn.removeEventListener('click', handleDeleteProductClick);
+            btn.addEventListener('click', handleDeleteProductClick);
         });
     }
 
-    // --- CRUD OPERATIONS ---
-    function handleEditProduct(event) {
-        const productId = event.currentTarget.closest('tr').dataset.id;
+function handleEditProductClick(event) {
+    const row = event.currentTarget.closest('tr');
+    if (!row) {
+        console.error("Could not find parent row for edit button.");
+        return;
+    }
+    const productId = row.dataset.id; // Use the actual DB ID stored in data-id
+    const product = allProducts.find(p => p.id == productId); // Find in the fetched allProducts array
+
+    if (!product) {
+        showToast('Product data not found for editing. Please refresh.', 'error');
+        return;
+    }
+    
+    currentProductId = product.id; // Set for the save operation
+    if(modalTitleEl) modalTitleEl.textContent = 'Edit Product';
+    
+    // Populate modal form fields using the correct IDs
+    if(productNameInputEl) productNameInputEl.value = product.name || '';
+    if(productSKUInputEl) productSKUInputEl.value = product.sku || '';
+    
+    // *** CRITICAL FOR CATEGORY ***
+    // The product object from /api/products has `category_id`
+    if(productCategoryModalSelectEl) {
+        productCategoryModalSelectEl.value = product.category_id || ""; // Set the <select> value to the category ID
+    }
+
+    if(productPriceInputEl) productPriceInputEl.value = product.price || 0;
+    if(productStockInputEl) productStockInputEl.value = product.stock || 0;
+    
+    // Ensure product.status is 'active' or 'inactive' string from API
+    if(productStatusSelectEl) {
+         productStatusSelectEl.value = product.status === 'active' ? 'active' : 'inactive';
+    }
+
+    if(productDescriptionTextareaEl) productDescriptionTextareaEl.value = product.description || '';
+    if(productImageInputFileEl) productImageInputFileEl.value = null; // Clear any selected file for new upload
+
+    // Handle current image display
+    if (product.image_url) {
+        if(currentProductImagePreviewEl) currentProductImagePreviewEl.src = product.image_url;
+        if(currentImageSectionDivEl) currentImageSectionDivEl.style.display = 'block'; // Show the section
+    } else {
+        if(currentProductImagePreviewEl) currentProductImagePreviewEl.src = '#'; // Placeholder or clear
+        if(currentImageSectionDivEl) currentImageSectionDivEl.style.display = 'none'; // Hide if no image
+    }
+
+    if(addProductModalInstance) addProductModalInstance.show();
+}
+    async function handleDeleteProductClick(event) {
+        const row = event.currentTarget.closest('tr');
+        if (!row) return;
+        const productId = row.dataset.id; // Actual DB ID
         const product = allProducts.find(p => p.id == productId);
-        if (!product) {
-            showErrorToast('Product not found.');
-            return;
-        }
-        
-        currentProductId = product.id;
-        modalTitle.textContent = 'Edit Product';
-        
-        document.getElementById('productName').value = product.name;
-        document.getElementById('productSKU').value = product.sku || '';
-        document.getElementById('productCategory').value = product.category;
-        document.getElementById('productPrice').value = product.price;
-        document.getElementById('productStock').value = product.stock;
-        document.getElementById('productStatus').value = product.status; // 'active' or 'inactive'
-        document.getElementById('productDescription').value = product.description || '';
-        productImageInput.value = null; // Clear file input
+        if (!product) { showToast('Product not found for deletion.', 'error'); return; }
 
-        if (product.image_url) {
-            currentProductImagePreview.src = product.image_url;
-            currentImageSection.style.display = 'block';
-        } else {
-            currentImageSection.style.display = 'none';
-        }
-        addProductModal.show();
-    }
-
-    async function handleDeleteProduct(event) {
-        const productId = event.currentTarget.closest('tr').dataset.id;
-        const product = allProducts.find(p => p.id == productId);
-        if (!product) {
-            showErrorToast('Product not found.');
-            return;
-        }
-
-        if (confirm(`Are you sure you want to delete "${product.name}"?`)) {
+        if (confirm(`Are you sure you want to delete "${product.name}"? This cannot be undone.`)) {
             try {
                 const response = await fetch(`/api/products/${productId}`, { method: 'DELETE' });
                 if (!response.ok) {
-                    const errorData = await response.json().catch(() => ({ error: 'Failed to delete product' }));
-                    throw new Error(errorData.error || 'Server error');
+                    const errorData = await response.json().catch(() => ({}));
+                    throw new Error(errorData.error || 'Failed to delete product');
                 }
-                await fetchProducts(); // Refresh list - this will reassign sequential IDs
-                showSuccessToast('Product successfully deleted!');
+                await fetchProducts(); 
+                showToast('Product successfully deleted!', 'success');
             } catch (error) {
                 console.error('Error deleting product:', error);
-                showErrorToast(`Error deleting product: ${error.message}`);
+                showToast(`Error: ${error.message}`, 'error');
             }
         }
     }
 
-    async function handleSaveProduct() {
-        // Basic client-side validation (add more as needed)
-        if (!addProductForm.checkValidity()) {
-            addProductForm.reportValidity();
+    async function handleSaveProductClick() {
+        if (!addProductFormEl || !addProductFormEl.checkValidity()) {
+            if(addProductFormEl) addProductFormEl.reportValidity();
             return;
         }
 
-        const formData = new FormData(addProductForm);
-        // Note: 'name' attributes on form inputs are used by FormData
-
+        const formData = new FormData(addProductFormEl);
         let url = '/api/products';
         let method = 'POST';
-
         if (currentProductId) {
             url = `/api/products/${currentProductId}`;
             method = 'PUT';
         }
 
+        if(saveProductBtnEl) {
+            saveProductBtnEl.disabled = true;
+            saveProductBtnEl.innerHTML = `<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Saving...`;
+        }
+
         try {
-            saveProductBtn.disabled = true;
-            saveProductBtn.innerHTML = `<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Saving...`;
-
-            const response = await fetch(url, {
-                method: method,
-                body: formData // Browser handles Content-Type for FormData
-            });
-
+            const response = await fetch(url, { method: method, body: formData });
             if (!response.ok) {
-                const errorData = await response.json().catch(() => ({ error: `Failed to ${currentProductId ? 'update' : 'create'} product` }));
-                throw new Error(errorData.error || 'Server error during save.');
+                const errorData = await response.json().catch(() => ({ error: `Operation failed with status ${response.status}` }));
+                throw new Error(errorData.error || `Failed to ${currentProductId ? 'update' : 'create'} product.`);
             }
-
-            // const savedProduct = await response.json(); // Contains the created/updated product
-
-            await fetchProducts(); // Refresh list with latest data and reassign sequential IDs
-            addProductModal.hide();
-            showSuccessToast(currentProductId ? 'Product successfully updated!' : 'Product successfully added!');
-            
+            await fetchProducts();
+            if(addProductModalInstance) addProductModalInstance.hide();
+            showToast(currentProductId ? 'Product successfully updated!' : 'Product successfully added!', 'success');
         } catch (error) {
             console.error('Error saving product:', error);
-            showErrorToast(`Error saving product: ${error.message}`);
+            showToast(`Error: ${error.message}`, 'error');
         } finally {
-            saveProductBtn.disabled = false;
-            saveProductBtn.textContent = 'Save Product';
+            if(saveProductBtnEl) {
+                saveProductBtnEl.disabled = false;
+                saveProductBtnEl.textContent = 'Save Product';
+            }
         }
     }
 
-    // --- EVENT LISTENERS ---
-    productSearch.addEventListener('input', renderProducts);
-    categoryFilter.addEventListener('change', renderProducts);
-    saveProductBtn.addEventListener('click', handleSaveProduct);
+    // Event Listeners Setup
+    if(productSearchInput) productSearchInput.addEventListener('input', renderProductTable);
+    if(categoryTableFilterSelect) categoryTableFilterSelect.addEventListener('change', renderProductTable);
+    if(saveProductBtnEl) saveProductBtnEl.addEventListener('click', handleSaveProductClick);
     
-    // Reset form when modal is opened for adding (not editing) or when closed
-    addProductModalEl.addEventListener('show.bs.modal', function (event) {
-        // If triggered by "Add New Product" button, currentProductId will be null
-        // If triggered by edit, currentProductId is set in handleEditProduct before modal.show()
-        if (!currentProductId) { // This means we are adding a new product
-            resetForm(); // Ensure form is clean for adding
-        }
-    });
-    addProductModalEl.addEventListener('hidden.bs.modal', resetForm); // Always reset after close
-
-    // Initial data load
-    fetchProducts();
+    if(addProductModalEl) {
+        addProductModalEl.addEventListener('show.bs.modal', () => {
+            if (!currentProductId) resetModalForm();
+        });
+        addProductModalEl.addEventListener('hidden.bs.modal', resetModalForm);
+    }
+    
+    fetchProducts(); // Initial data load
 });
 </script>
 {% endblock %}
