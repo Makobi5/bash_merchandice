@@ -1621,7 +1621,7 @@ def get_products():
 # API endpoint to GET all products (called by JavaScript on products.html)
 @app.route('/api/products', methods=['GET'])
 @login_required
-def get_products_api(): # Renamed to distinguish from the page route
+def get_products_api():
     if not check_supabase():
         return jsonify({'error': 'Database connection failed'}), 500
     try:
@@ -1644,18 +1644,16 @@ def get_products_api(): # Renamed to distinguish from the page route
                     'category_name': category_info['name'] if category_info else 'Uncategorized',
                     'price': p_data['price'],
                     'stock': p_data.get('stock', 0),
-                    'status': 'active' if p_data.get('status') else 'inactive', # Ensure boolean status from DB is converted
+                    'status': 'active' if p_data.get('status') else 'inactive',
                     'description': p_data.get('description'),
                     'image_url': p_data.get('image_url'),
-                    # 'created_at': p_data.get('created_at'), # Optional for display
-                    # 'updated_at': p_data.get('updated_at')  # Optional for display
                 })
         return jsonify(products_list_for_json)
     except Exception as e:
         print(f"Error fetching products API: {type(e).__name__} - {e}")
         import traceback
         traceback.print_exc()
-        return jsonify({"error": "Failed to fetch products"}), 500        
+        return jsonify({"error": "Failed to fetch products"}), 500      
 
 # Get a single product
 @app.route('/api/products/<int:product_id>', methods=['GET'])
@@ -2013,14 +2011,15 @@ def upload_product_image(product_id):
 def products_page():
     if not check_supabase():
         flash("Database connection failed.", "danger")
-        return render_template('products.html', categories=[])
+        return render_template('products.html', categories_list=[])
     try:
+        # Fetch categories for the dropdown
         categories_response = supabase.table('categories').select('id, name').order('name').execute()
-        return render_template('products.html', categories=categories_response.data or [])
+        return render_template('products.html', categories_list=categories_response.data or [])
     except Exception as e:
         print(f"Error fetching categories for products page: {type(e).__name__} - {e}")
         flash("Could not load categories for product management.", "danger")
-        return render_template('products.html', categories=[])        
+        return render_template('products.html', categories_list=[])      
 
 # --- REMOVED DUPLICATE format_ugx definition and incorrect return statement ---
 

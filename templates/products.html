@@ -12,9 +12,36 @@
     .table tr:hover { background-color: rgba(0, 123, 255, 0.05); }
     .text-danger { color: #dc3545 !important; }
     #currentProductImagePreview {
-        width: 120px; height: 120px; object-fit: cover;
-        border: 1px solid #dee2e6; border-radius: .25rem;
-        display: block; margin-top: 5px; margin-bottom: 10px;
+        width: 120px; 
+        height: 120px; 
+        object-fit: cover;
+        border: 1px solid #dee2e6; 
+        border-radius: .25rem;
+        display: block; 
+        margin-top: 5px; 
+        margin-bottom: 10px;
+    }
+    
+    #currentProductImagePreviewEl {
+        width: 150px; 
+        height: 150px;
+        object-fit: contain;
+        border: 1px solid #dee2e6;
+        border-radius: 4px;
+        margin-top: 5px;
+        margin-bottom: 10px;
+    }
+    
+    .current-image-label {
+        font-weight: 500;
+        margin-bottom: 5px;
+        display: block;
+    }
+    
+    .image-upload-section {
+        margin-top: 15px;
+        padding-top: 15px;
+        border-top: 1px solid #eee;
     }
 </style>
 {% endblock %}
@@ -294,45 +321,56 @@ function handleEditProductClick(event) {
         console.error("Could not find parent row for edit button.");
         return;
     }
-    const productId = row.dataset.id; // Use the actual DB ID stored in data-id
-    const product = allProducts.find(p => p.id == productId); // Find in the fetched allProducts array
+    const productId = row.dataset.id; // Actual DB ID
+    const product = allProducts.find(p => p.id == productId); 
+
+    // Log the product object being used to populate the modal
+    console.log("Editing product object:", JSON.stringify(product, null, 2)); 
 
     if (!product) {
         showToast('Product data not found for editing. Please refresh.', 'error');
         return;
     }
     
-    currentProductId = product.id; // Set for the save operation
+    currentProductId = product.id; 
     if(modalTitleEl) modalTitleEl.textContent = 'Edit Product';
     
-    // Populate modal form fields using the correct IDs
+    // Populate modal form fields
     if(productNameInputEl) productNameInputEl.value = product.name || '';
     if(productSKUInputEl) productSKUInputEl.value = product.sku || '';
     
-    // *** CRITICAL FOR CATEGORY ***
-    // The product object from /api/products has `category_id`
     if(productCategoryModalSelectEl) {
-        productCategoryModalSelectEl.value = product.category_id || ""; // Set the <select> value to the category ID
+        console.log("Attempting to set category ID in modal:", product.category_id);
+        // Ensure product.category_id is correctly compared as string if option values are strings
+        productCategoryModalSelectEl.value = product.category_id !== null && product.category_id !== undefined 
+                                              ? product.category_id.toString() 
+                                              : "";
+        if (productCategoryModalSelectEl.value === "" && product.category_id !== null && product.category_id !== undefined) {
+            console.warn(`Category ID ${product.category_id} not found in modal dropdown.`);
+        }
+    } else {
+        console.error("Category select element in modal not found!");
     }
 
     if(productPriceInputEl) productPriceInputEl.value = product.price || 0;
     if(productStockInputEl) productStockInputEl.value = product.stock || 0;
     
-    // Ensure product.status is 'active' or 'inactive' string from API
     if(productStatusSelectEl) {
          productStatusSelectEl.value = product.status === 'active' ? 'active' : 'inactive';
     }
 
     if(productDescriptionTextareaEl) productDescriptionTextareaEl.value = product.description || '';
-    if(productImageInputFileEl) productImageInputFileEl.value = null; // Clear any selected file for new upload
+    if(productImageInputFileEl) productImageInputFileEl.value = null; 
 
     // Handle current image display
     if (product.image_url) {
+        console.log("Setting current image preview to:", product.image_url);
         if(currentProductImagePreviewEl) currentProductImagePreviewEl.src = product.image_url;
-        if(currentImageSectionDivEl) currentImageSectionDivEl.style.display = 'block'; // Show the section
+        if(currentImageSectionDivEl) currentImageSectionDivEl.style.display = 'block';
     } else {
-        if(currentProductImagePreviewEl) currentProductImagePreviewEl.src = '#'; // Placeholder or clear
-        if(currentImageSectionDivEl) currentImageSectionDivEl.style.display = 'none'; // Hide if no image
+        console.log("No current image_url for product.");
+        if(currentProductImagePreviewEl) currentProductImagePreviewEl.src = '#';
+        if(currentImageSectionDivEl) currentImageSectionDivEl.style.display = 'none';
     }
 
     if(addProductModalInstance) addProductModalInstance.show();
