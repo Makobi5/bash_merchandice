@@ -1,3 +1,5 @@
+--- START OF FILE products.html ---
+
 {% extends "base.html" %}
 
 {% block title %}Products - Bash Merchandise Manager{% endblock %}
@@ -16,23 +18,12 @@
         <span><span class="product-count">0</span> products</span> <!-- Initial count will be updated by JS -->
         <div class="d-flex gap-2">
             <input type="text" class="form-control" placeholder="Search products..." id="productSearch">
-            <select class="form-select" id="categoryFilter">
-                <option value="">All Categories</option>
-                <option value="Electronics">Electronics</option>
-                <option value="Clothing">Clothing</option>
-                <option value="Groceries">Groceries</option>
-                <option value="Home & Kitchen">Home & Kitchen</option>
-                <option value="Beauty & Personal Care">Beauty & Personal Care</option>
-                <option value="Stationery">Stationery</option>
-                <option value="Mobile Phones & Accessories">Mobile Phones & Accessories</option>
-                <option value="Agriculture">Agriculture</option>
-                <option value="Hardware & Tools">Hardware & Tools</option>
-                <option value="Auto Parts">Auto Parts</option>
-                <option value="Traditional Crafts">Traditional Crafts</option>
-                <option value="Baby Products">Baby Products</option>
-                <option value="Health & Medicine">Health & Medicine</option>
-                <option value="Books">Books</option>
-            </select>
+                <select class="form-select" id="categoryFilter">
+                    <option value="">All Categories</option>
+                    {% for category in categories %}
+                    <option value="{{ category.id }}">{{ category.name }}</option>
+                    {% endfor %}
+                </select>
         </div>
     </div>
     <div class="card-body p-0">
@@ -100,22 +91,11 @@
                     <div class="row mb-3">
                         <div class="col-md-6">
                             <label for="productCategory" class="form-label">Category <span class="text-danger">*</span></label>
-                            <select class="form-select" id="productCategory" name="category" required>
+                            <select class="form-select" id="productCategory" name="category_id" required>
                                 <option value="">Select Category</option>
-                                <option value="Electronics">Electronics</option>
-                                <option value="Clothing">Clothing</option>
-                                <option value="Groceries">Groceries</option>
-                                <option value="Home & Kitchen">Home & Kitchen</option>
-                                <option value="Beauty & Personal Care">Beauty & Personal Care</option>
-                                <option value="Stationery">Stationery</option>
-                                <option value="Mobile Phones & Accessories">Mobile Phones & Accessories</option>
-                                <option value="Agriculture">Agriculture</option>
-                                <option value="Hardware & Tools">Hardware & Tools</option>
-                                <option value="Auto Parts">Auto Parts</option>
-                                <option value="Traditional Crafts">Traditional Crafts</option>
-                                <option value="Baby Products">Baby Products</option>
-                                <option value="Health & Medicine">Health & Medicine</option>
-                                <option value="Books">Books</option>
+                                {% for category in categories %}
+                                <option value="{{ category.id }}">{{ category.name }}</option>
+                                {% endfor %}
                             </select>
                         </div>
                         <div class="col-md-6">
@@ -197,30 +177,27 @@
 {% block scripts %}
 <script>
 document.addEventListener('DOMContentLoaded', function() {
+
+    let categoryMap = {}; // To store category_id -> category_name mapping
+    let allProducts = []; // Store all fetched products
+    let currentProductId = null; // For tracking which product is being edited
+
     // DOM elements
     const productSearch = document.getElementById('productSearch');
     const categoryFilter = document.getElementById('categoryFilter');
     const productsTableBody = document.getElementById('productsTableBody');
-    // const rowsPerPageSelect = document.getElementById('rowsPerPage'); // For pagination later
-    // const paginationContainer = document.getElementById('productPagination'); // For pagination later
-
     const addProductModalEl = document.getElementById('addProductModal');
     const addProductModal = new bootstrap.Modal(addProductModalEl);
     const addProductForm = document.getElementById('addProductForm');
     const modalTitle = document.getElementById('addProductModalLabel');
     const saveProductBtn = document.getElementById('saveProductBtn');
-    
     const successToastEl = document.getElementById('successToast');
     const bsSuccessToast = new bootstrap.Toast(successToastEl);
     const toastMessageEl = document.getElementById('toastMessage');
-
     const currentImageSection = document.getElementById('currentImageSection');
     const currentProductImagePreview = document.getElementById('currentProductImagePreview');
     const productImageInput = document.getElementById('productImage');
 
-
-    let allProducts = []; // Store all fetched products
-    let currentProductId = null; // For tracking which product is being edited
 
     // --- UTILITY FUNCTIONS ---
     function showSuccessToast(message) {
@@ -252,26 +229,52 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     
     function resetForm() {
-        addProductForm.reset(); // Resets most form fields
-        productImageInput.value = null; // Explicitly clear file input
+        addProductForm.reset();
+        productImageInput.value = null;
         currentProductId = null;
         modalTitle.textContent = 'Add New Product';
         currentImageSection.style.display = 'none';
         currentProductImagePreview.src = '#';
-        // Clear any validation states if you add them
     }
 
     // --- DATA FETCHING AND RENDERING ---
-    async function fetchProducts() {
+
+    // Function to fetch categories and then products
+    async function initializePageData() {
         try {
-            const response = await fetch('/api/products');
+            // Fetch categories to build the map
+            const categoriesResponse = await fetch('/api/categories');
+            if (!categoriesResponse.ok) {
+                console.error('Failed to fetch categories for map');
+                showErrorToast('Could not load category list for mapping.');
+                // Proceed to fetch products anyway, display might show 'Uncategorized'
+            } else {
+                const categoriesData = await categoriesResponse.json();
+                categoriesData.forEach(category => {
+                    categoryMap[category.id] = category.name;
+                });
+                console.log('Category map populated:', categoryMap);
+            }
+        } catch (error) {
+            console.error('Error fetching categories for map:', error);
+            showErrorToast('Error loading category list.');
+        } finally {
+            // Regardless of category map success, fetch products
+            await fetchProducts();
+        }
+    }
+
+
+    async function fetchProducts() {
+        productsTableBody.innerHTML = `<tr><td colspan="9" class="text-center py-4">Loading products...</td></tr>`;
+        try {
+            const response = await fetch('/api/products'); // This API should return category_name as well
             if (!response.ok) {
                 const errorData = await response.json().catch(() => ({ error: 'Failed to fetch products' }));
                 throw new Error(errorData.error || 'Server error');
             }
             allProducts = await response.json();
             
-            // Reset product IDs to ensure they always start from 1
             allProducts = allProducts.map((product, index) => {
                 return {...product, display_id: index + 1};
             });
@@ -286,33 +289,30 @@ document.addEventListener('DOMContentLoaded', function() {
 
     function filterAndSortProducts() {
         const searchTerm = productSearch.value.toLowerCase();
-        const category = categoryFilter.value;
+        const categoryIdFilter = categoryFilter.value; 
         
         let filtered = allProducts.filter(product => {
             const nameMatch = product.name.toLowerCase().includes(searchTerm);
             const skuMatch = product.sku ? product.sku.toLowerCase().includes(searchTerm) : false;
-            const categoryMatch = category === '' || product.category === category;
+            // product.category_id is the actual ID from the product object
+            const categoryMatch = categoryIdFilter === '' || product.category_id == categoryIdFilter; 
             return (nameMatch || skuMatch) && categoryMatch;
         });
         
-        // Sort by display_id (sequential ID) ascending
         filtered.sort((a, b) => a.display_id - b.display_id);
         return filtered;
     }
 
-    function formatCurrency(amount) {
-        // Format as UGX currency with comma separators for thousands
-        return new Intl.NumberFormat('en-UG', {
-            minimumFractionDigits: 0,
-            maximumFractionDigits: 0
-        }).format(amount);
+    function formatCurrency(value) {
+        if (value === null || value === undefined || isNaN(parseFloat(value))) return '0';
+        return parseFloat(value).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
     }
 
     function renderProducts() {
         const filteredProducts = filterAndSortProducts();
         document.querySelector('.product-count').textContent = filteredProducts.length;
         
-        productsTableBody.innerHTML = ''; // Clear existing rows
+        productsTableBody.innerHTML = ''; 
         
         if (filteredProducts.length === 0) {
             productsTableBody.innerHTML = `<tr><td colspan="9" class="text-center py-4">No products found.</td></tr>`;
@@ -322,15 +322,17 @@ document.addEventListener('DOMContentLoaded', function() {
         filteredProducts.forEach(product => {
             let stockClass = 'stock-normal';
             if (product.stock <= 0) stockClass = 'stock-danger';
-            else if (product.stock <= 5) stockClass = 'stock-danger'; // Low stock threshold
-            else if (product.stock <= 10) stockClass = 'stock-warning'; // Warning threshold
+            else if (product.stock <= 5) stockClass = 'stock-danger'; 
+            else if (product.stock <= 10) stockClass = 'stock-warning'; 
             
             const statusBadge = product.status === 'active' 
                 ? `<span class="badge bg-success">Active</span>` 
                 : `<span class="badge bg-secondary">Inactive</span>`;
             
-            // Use placeholder if image_url is missing
-            const imageUrl = product.image_url || '/static/images/placeholder_product.png'; // Ensure you have this placeholder
+            const imageUrl = product.image_url || '/static/images/placeholder_product.png';
+            
+            // Prioritize product.category_name (from /api/products), then categoryMap, then 'Uncategorized'
+            const categoryName = product.category_name || categoryMap[product.category_id] || 'Uncategorized';
 
             const row = `
                 <tr data-id="${product.id}" data-display-id="${product.display_id}">
@@ -338,7 +340,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     <td><img src="${imageUrl}" alt="${product.name}" class="product-thumbnail"></td>
                     <td>${product.name}</td>
                     <td>${product.sku || 'N/A'}</td>
-                    <td>${product.category}</td>
+                    <td>${categoryName}</td>
                     <td class="text-end">UGX ${formatCurrency(product.price)}</td>
                     <td class="text-center ${stockClass}">${product.stock}</td>
                     <td>${statusBadge}</td>
@@ -376,12 +378,12 @@ document.addEventListener('DOMContentLoaded', function() {
         
         document.getElementById('productName').value = product.name;
         document.getElementById('productSKU').value = product.sku || '';
-        document.getElementById('productCategory').value = product.category;
+        document.getElementById('productCategory').value = product.category_id; // This should be the ID
         document.getElementById('productPrice').value = product.price;
         document.getElementById('productStock').value = product.stock;
-        document.getElementById('productStatus').value = product.status; // 'active' or 'inactive'
+        document.getElementById('productStatus').value = product.status;
         document.getElementById('productDescription').value = product.description || '';
-        productImageInput.value = null; // Clear file input
+        productImageInput.value = null;
 
         if (product.image_url) {
             currentProductImagePreview.src = product.image_url;
@@ -407,7 +409,11 @@ document.addEventListener('DOMContentLoaded', function() {
                     const errorData = await response.json().catch(() => ({ error: 'Failed to delete product' }));
                     throw new Error(errorData.error || 'Server error');
                 }
-                await fetchProducts(); // Refresh list - this will reassign sequential IDs
+                // Instead of full fetchProducts, optimistically remove from allProducts and re-render
+                allProducts = allProducts.filter(p => p.id != productId);
+                // Re-assign display_ids after deletion
+                allProducts = allProducts.map((p, index) => ({ ...p, display_id: index + 1 }));
+                renderProducts(); // Re-render with the updated list
                 showSuccessToast('Product successfully deleted!');
             } catch (error) {
                 console.error('Error deleting product:', error);
@@ -417,15 +423,12 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     async function handleSaveProduct() {
-        // Basic client-side validation (add more as needed)
         if (!addProductForm.checkValidity()) {
             addProductForm.reportValidity();
             return;
         }
 
         const formData = new FormData(addProductForm);
-        // Note: 'name' attributes on form inputs are used by FormData
-
         let url = '/api/products';
         let method = 'POST';
 
@@ -440,7 +443,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
             const response = await fetch(url, {
                 method: method,
-                body: formData // Browser handles Content-Type for FormData
+                body: formData
             });
 
             if (!response.ok) {
@@ -448,9 +451,13 @@ document.addEventListener('DOMContentLoaded', function() {
                 throw new Error(errorData.error || 'Server error during save.');
             }
 
-            // const savedProduct = await response.json(); // Contains the created/updated product
+            // The response from POST/PUT should be the full product object, including category_name
+            // const savedProductData = await response.json();
 
-            await fetchProducts(); // Refresh list with latest data and reassign sequential IDs
+            // Instead of full fetchProducts, update or add to allProducts and re-render
+            // This is more complex for PUT if the server doesn't return the *full* updated object including category_name
+            // For simplicity and correctness, fetching all products ensures consistency.
+            await fetchProducts(); // Refresh list - this ensures category_name is up-to-date
             addProductModal.hide();
             showSuccessToast(currentProductId ? 'Product successfully updated!' : 'Product successfully added!');
             
@@ -468,18 +475,16 @@ document.addEventListener('DOMContentLoaded', function() {
     categoryFilter.addEventListener('change', renderProducts);
     saveProductBtn.addEventListener('click', handleSaveProduct);
     
-    // Reset form when modal is opened for adding (not editing) or when closed
     addProductModalEl.addEventListener('show.bs.modal', function (event) {
-        // If triggered by "Add New Product" button, currentProductId will be null
-        // If triggered by edit, currentProductId is set in handleEditProduct before modal.show()
-        if (!currentProductId) { // This means we are adding a new product
-            resetForm(); // Ensure form is clean for adding
+        if (!currentProductId) { 
+            resetForm(); 
         }
     });
-    addProductModalEl.addEventListener('hidden.bs.modal', resetForm); // Always reset after close
+    addProductModalEl.addEventListener('hidden.bs.modal', resetForm);
 
     // Initial data load
-    fetchProducts();
+    initializePageData(); // Call the new function that loads categories then products
 });
 </script>
 {% endblock %}
+--- END OF FILE products.html ---

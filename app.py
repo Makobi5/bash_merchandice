@@ -1977,13 +1977,28 @@ def products_page():
         flash("Database connection failed.", "danger")
         return render_template('products.html', categories=[])
     try:
+        # Fetch categories from database
         categories_response = supabase.table('categories').select('id, name').order('name').execute()
         return render_template('products.html', categories=categories_response.data or [])
     except Exception as e:
         print(f"Error fetching categories for products page: {type(e).__name__} - {e}")
         flash("Could not load categories for product management.", "danger")
-        return render_template('products.html', categories=[])        
+        return render_template('products.html', categories=[])       
 
+@app.route('/api/categories', methods=['GET'])
+@login_required
+def get_all_categories_api(): # Renamed to avoid conflict if you have other get_all_categories
+    if not check_supabase():
+        return jsonify({'error': 'Database connection failed'}), 500
+    try:
+        response = supabase.table('categories').select('id, name').order('name').execute()
+        if response.data:
+            return jsonify(response.data)
+        else:
+            return jsonify([]) # Return empty list if no categories
+    except Exception as e:
+        print(f"Error fetching all categories API: {type(e).__name__} - {e}")
+        return jsonify({"error": "Failed to fetch categories"}), 500
 # --- REMOVED DUPLICATE format_ugx definition and incorrect return statement ---
 
 # =========================================
