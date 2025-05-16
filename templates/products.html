@@ -173,7 +173,6 @@
     .text-danger { color: #dc3545 !important; } /* Ensure asterisk for required fields is red */
 </style>
 {% endblock %}
-
 {% block scripts %}
 <script>
 document.addEventListener('DOMContentLoaded', function() {
@@ -184,7 +183,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // DOM elements
     const productSearch = document.getElementById('productSearch');
-    const categoryFilter = document.getElementById('categoryFilter');
+    const categoryFilterSelect = document.getElementById('categoryFilter'); // Renamed for clarity
     const productsTableBody = document.getElementById('productsTableBody');
     const addProductModalEl = document.getElementById('addProductModal');
     const addProductModal = new bootstrap.Modal(addProductModalEl);
@@ -239,36 +238,60 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // --- DATA FETCHING AND RENDERING ---
 
-    // Function to fetch categories and then products
+    // This is the CORRECT and ONLY initializePageData function
     async function initializePageData() {
         try {
-            // Fetch categories to build the map
             const categoriesResponse = await fetch('/api/categories');
             if (!categoriesResponse.ok) {
-                console.error('Failed to fetch categories for map');
-                showErrorToast('Could not load category list for mapping.');
-                // Proceed to fetch products anyway, display might show 'Uncategorized'
+                console.error('Failed to fetch categories from /api/categories');
+                showErrorToast('Could not load category list for filtering and mapping.');
             } else {
                 const categoriesData = await categoriesResponse.json();
+                console.log('Fetched categoriesData:', categoriesData); // Debug log
+
+                // Populate categoryMap
+                categoryMap = {}; // Reset map
                 categoriesData.forEach(category => {
                     categoryMap[category.id] = category.name;
                 });
                 console.log('Category map populated:', categoryMap);
+
+                // --- START: Populate categoryFilter dropdown ---
+                // Clear existing options (keeping the "All Categories" option if it was hardcoded or from Jinja)
+                // The Jinja loop for categoryFilter might have already run.
+                // This JS code ensures the filter is populated from the API.
+                
+                // Ensure "All Categories" is the first option if not already present or to reset
+                categoryFilterSelect.innerHTML = '<option value="">All Categories</option>';
+
+                // Add new options from fetched data
+                if (categoriesData && categoriesData.length > 0) {
+                    categoriesData.forEach(category => {
+                        const option = document.createElement('option');
+                        option.value = category.id;
+                        option.textContent = category.name;
+                        categoryFilterSelect.appendChild(option);
+                    });
+                    console.log('Category filter dropdown populated by JavaScript.');
+                } else {
+                    console.log('No categories data to populate filter dropdown.');
+                }
+                // --- END: Populate categoryFilter dropdown ---
             }
         } catch (error) {
-            console.error('Error fetching categories for map:', error);
-            showErrorToast('Error loading category list.');
+            console.error('Error in initializePageData (fetching categories):', error);
+            showErrorToast('Error loading category list from API.');
         } finally {
-            // Regardless of category map success, fetch products
+            // Regardless of category map/filter success, fetch products
             await fetchProducts();
         }
     }
-
+    // DO NOT ADD ANOTHER initializePageData FUNCTION HERE
 
     async function fetchProducts() {
         productsTableBody.innerHTML = `<tr><td colspan="9" class="text-center py-4">Loading products...</td></tr>`;
         try {
-            const response = await fetch('/api/products'); // This API should return category_name as well
+            const response = await fetch('/api/products');
             if (!response.ok) {
                 const errorData = await response.json().catch(() => ({ error: 'Failed to fetch products' }));
                 throw new Error(errorData.error || 'Server error');
@@ -289,13 +312,12 @@ document.addEventListener('DOMContentLoaded', function() {
 
     function filterAndSortProducts() {
         const searchTerm = productSearch.value.toLowerCase();
-        const categoryIdFilter = categoryFilter.value; 
+        const categoryIdFilterValue = categoryFilterSelect.value; // Use the updated variable name
         
         let filtered = allProducts.filter(product => {
             const nameMatch = product.name.toLowerCase().includes(searchTerm);
             const skuMatch = product.sku ? product.sku.toLowerCase().includes(searchTerm) : false;
-            // product.category_id is the actual ID from the product object
-            const categoryMatch = categoryIdFilter === '' || product.category_id == categoryIdFilter; 
+            const categoryMatch = categoryIdFilterValue === '' || product.category_id == categoryIdFilterValue; 
             return (nameMatch || skuMatch) && categoryMatch;
         });
         
@@ -330,8 +352,6 @@ document.addEventListener('DOMContentLoaded', function() {
                 : `<span class="badge bg-secondary">Inactive</span>`;
             
             const imageUrl = product.image_url || '/static/images/placeholder_product.png';
-            
-            // Prioritize product.category_name (from /api/products), then categoryMap, then 'Uncategorized'
             const categoryName = product.category_name || categoryMap[product.category_id] || 'Uncategorized';
 
             const row = `
@@ -378,7 +398,7 @@ document.addEventListener('DOMContentLoaded', function() {
         
         document.getElementById('productName').value = product.name;
         document.getElementById('productSKU').value = product.sku || '';
-        document.getElementById('productCategory').value = product.category_id; // This should be the ID
+        document.getElementById('productCategory').value = product.category_id;
         document.getElementById('productPrice').value = product.price;
         document.getElementById('productStock').value = product.stock;
         document.getElementById('productStatus').value = product.status;
@@ -409,11 +429,9 @@ document.addEventListener('DOMContentLoaded', function() {
                     const errorData = await response.json().catch(() => ({ error: 'Failed to delete product' }));
                     throw new Error(errorData.error || 'Server error');
                 }
-                // Instead of full fetchProducts, optimistically remove from allProducts and re-render
                 allProducts = allProducts.filter(p => p.id != productId);
-                // Re-assign display_ids after deletion
                 allProducts = allProducts.map((p, index) => ({ ...p, display_id: index + 1 }));
-                renderProducts(); // Re-render with the updated list
+                renderProducts();
                 showSuccessToast('Product successfully deleted!');
             } catch (error) {
                 console.error('Error deleting product:', error);
@@ -450,14 +468,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 const errorData = await response.json().catch(() => ({ error: `Failed to ${currentProductId ? 'update' : 'create'} product` }));
                 throw new Error(errorData.error || 'Server error during save.');
             }
-
-            // The response from POST/PUT should be the full product object, including category_name
-            // const savedProductData = await response.json();
-
-            // Instead of full fetchProducts, update or add to allProducts and re-render
-            // This is more complex for PUT if the server doesn't return the *full* updated object including category_name
-            // For simplicity and correctness, fetching all products ensures consistency.
-            await fetchProducts(); // Refresh list - this ensures category_name is up-to-date
+            await fetchProducts(); 
             addProductModal.hide();
             showSuccessToast(currentProductId ? 'Product successfully updated!' : 'Product successfully added!');
             
@@ -472,7 +483,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // --- EVENT LISTENERS ---
     productSearch.addEventListener('input', renderProducts);
-    categoryFilter.addEventListener('change', renderProducts);
+    categoryFilterSelect.addEventListener('change', renderProducts); // Use updated variable name
     saveProductBtn.addEventListener('click', handleSaveProduct);
     
     addProductModalEl.addEventListener('show.bs.modal', function (event) {
@@ -483,7 +494,7 @@ document.addEventListener('DOMContentLoaded', function() {
     addProductModalEl.addEventListener('hidden.bs.modal', resetForm);
 
     // Initial data load
-    initializePageData(); // Call the new function that loads categories then products
+    initializePageData(); 
 });
 </script>
 {% endblock %}
