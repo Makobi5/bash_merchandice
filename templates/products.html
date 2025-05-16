@@ -177,13 +177,14 @@
 <script>
 document.addEventListener('DOMContentLoaded', function() {
 
-    let categoryMap = {}; // To store category_id -> category_name mapping
-    let allProducts = []; // Store all fetched products
-    let currentProductId = null; // For tracking which product is being edited
+    let categoryMap = {};
+    let allProducts = [];
+    let currentProductId = null;
 
     // DOM elements
     const productSearch = document.getElementById('productSearch');
-    const categoryFilterSelect = document.getElementById('categoryFilter'); // Renamed for clarity
+    const categoryFilterSelect = document.getElementById('categoryFilter');
+    const productCategoryModalSelect = document.getElementById('productCategory'); // Added for modal dropdown
     const productsTableBody = document.getElementById('productsTableBody');
     const addProductModalEl = document.getElementById('addProductModal');
     const addProductModal = new bootstrap.Modal(addProductModalEl);
@@ -196,7 +197,6 @@ document.addEventListener('DOMContentLoaded', function() {
     const currentImageSection = document.getElementById('currentImageSection');
     const currentProductImagePreview = document.getElementById('currentProductImagePreview');
     const productImageInput = document.getElementById('productImage');
-
 
     // --- UTILITY FUNCTIONS ---
     function showSuccessToast(message) {
@@ -228,17 +228,16 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     
     function resetForm() {
-        addProductForm.reset();
+        addProductForm.reset(); // This will reset select to its first option
         productImageInput.value = null;
         currentProductId = null;
         modalTitle.textContent = 'Add New Product';
         currentImageSection.style.display = 'none';
         currentProductImagePreview.src = '#';
+        // The #productCategory select will be reset to "Select Category" by addProductForm.reset()
     }
 
     // --- DATA FETCHING AND RENDERING ---
-
-    // This is the CORRECT and ONLY initializePageData function
     async function initializePageData() {
         try {
             const categoriesResponse = await fetch('/api/categories');
@@ -247,24 +246,16 @@ document.addEventListener('DOMContentLoaded', function() {
                 showErrorToast('Could not load category list for filtering and mapping.');
             } else {
                 const categoriesData = await categoriesResponse.json();
-                console.log('Fetched categoriesData:', categoriesData); // Debug log
+                console.log('Fetched categoriesData:', categoriesData);
 
-                // Populate categoryMap
-                categoryMap = {}; // Reset map
+                categoryMap = {};
                 categoriesData.forEach(category => {
                     categoryMap[category.id] = category.name;
                 });
                 console.log('Category map populated:', categoryMap);
 
-                // --- START: Populate categoryFilter dropdown ---
-                // Clear existing options (keeping the "All Categories" option if it was hardcoded or from Jinja)
-                // The Jinja loop for categoryFilter might have already run.
-                // This JS code ensures the filter is populated from the API.
-                
-                // Ensure "All Categories" is the first option if not already present or to reset
+                // Populate main page filter dropdown
                 categoryFilterSelect.innerHTML = '<option value="">All Categories</option>';
-
-                // Add new options from fetched data
                 if (categoriesData && categoriesData.length > 0) {
                     categoriesData.forEach(category => {
                         const option = document.createElement('option');
@@ -273,20 +264,28 @@ document.addEventListener('DOMContentLoaded', function() {
                         categoryFilterSelect.appendChild(option);
                     });
                     console.log('Category filter dropdown populated by JavaScript.');
-                } else {
-                    console.log('No categories data to populate filter dropdown.');
                 }
-                // --- END: Populate categoryFilter dropdown ---
+
+                // --- START: Populate MODAL's category dropdown ---
+                productCategoryModalSelect.innerHTML = '<option value="">Select Category</option>'; // Default for modal
+                if (categoriesData && categoriesData.length > 0) {
+                    categoriesData.forEach(category => {
+                        const option = document.createElement('option');
+                        option.value = category.id;
+                        option.textContent = category.name;
+                        productCategoryModalSelect.appendChild(option);
+                    });
+                    console.log('Modal category dropdown (productCategory) populated by JavaScript.');
+                }
+                // --- END: Populate MODAL's category dropdown ---
             }
         } catch (error) {
             console.error('Error in initializePageData (fetching categories):', error);
             showErrorToast('Error loading category list from API.');
         } finally {
-            // Regardless of category map/filter success, fetch products
             await fetchProducts();
         }
     }
-    // DO NOT ADD ANOTHER initializePageData FUNCTION HERE
 
     async function fetchProducts() {
         productsTableBody.innerHTML = `<tr><td colspan="9" class="text-center py-4">Loading products...</td></tr>`;
@@ -297,11 +296,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 throw new Error(errorData.error || 'Server error');
             }
             allProducts = await response.json();
-            
-            allProducts = allProducts.map((product, index) => {
-                return {...product, display_id: index + 1};
-            });
-            
+            allProducts = allProducts.map((product, index) => ({...product, display_id: index + 1}));
             renderProducts();
         } catch (error) {
             console.error('Error fetching products:', error);
@@ -312,15 +307,13 @@ document.addEventListener('DOMContentLoaded', function() {
 
     function filterAndSortProducts() {
         const searchTerm = productSearch.value.toLowerCase();
-        const categoryIdFilterValue = categoryFilterSelect.value; // Use the updated variable name
-        
+        const categoryIdFilterValue = categoryFilterSelect.value;
         let filtered = allProducts.filter(product => {
             const nameMatch = product.name.toLowerCase().includes(searchTerm);
             const skuMatch = product.sku ? product.sku.toLowerCase().includes(searchTerm) : false;
-            const categoryMatch = categoryIdFilterValue === '' || product.category_id == categoryIdFilterValue; 
+            const categoryMatch = categoryIdFilterValue === '' || product.category_id == categoryIdFilterValue;
             return (nameMatch || skuMatch) && categoryMatch;
         });
-        
         filtered.sort((a, b) => a.display_id - b.display_id);
         return filtered;
     }
@@ -333,27 +326,19 @@ document.addEventListener('DOMContentLoaded', function() {
     function renderProducts() {
         const filteredProducts = filterAndSortProducts();
         document.querySelector('.product-count').textContent = filteredProducts.length;
-        
-        productsTableBody.innerHTML = ''; 
-        
+        productsTableBody.innerHTML = '';
         if (filteredProducts.length === 0) {
             productsTableBody.innerHTML = `<tr><td colspan="9" class="text-center py-4">No products found.</td></tr>`;
             return;
         }
-        
         filteredProducts.forEach(product => {
             let stockClass = 'stock-normal';
             if (product.stock <= 0) stockClass = 'stock-danger';
-            else if (product.stock <= 5) stockClass = 'stock-danger'; 
-            else if (product.stock <= 10) stockClass = 'stock-warning'; 
-            
-            const statusBadge = product.status === 'active' 
-                ? `<span class="badge bg-success">Active</span>` 
-                : `<span class="badge bg-secondary">Inactive</span>`;
-            
+            else if (product.stock <= 5) stockClass = 'stock-danger';
+            else if (product.stock <= 10) stockClass = 'stock-warning';
+            const statusBadge = product.status === 'active' ? `<span class="badge bg-success">Active</span>` : `<span class="badge bg-secondary">Inactive</span>`;
             const imageUrl = product.image_url || '/static/images/placeholder_product.png';
             const categoryName = product.category_name || categoryMap[product.category_id] || 'Uncategorized';
-
             const row = `
                 <tr data-id="${product.id}" data-display-id="${product.display_id}">
                     <td>${product.display_id}</td>
@@ -368,8 +353,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         <button class="btn btn-sm btn-outline-primary me-1 edit-product-btn" title="Edit"><i class="bi bi-pencil-fill"></i></button>
                         <button class="btn btn-sm btn-outline-danger delete-product-btn" title="Delete"><i class="bi bi-trash-fill"></i></button>
                     </td>
-                </tr>
-            `;
+                </tr>`;
             productsTableBody.insertAdjacentHTML('beforeend', row);
         });
         attachActionListeners();
@@ -398,7 +382,11 @@ document.addEventListener('DOMContentLoaded', function() {
         
         document.getElementById('productName').value = product.name;
         document.getElementById('productSKU').value = product.sku || '';
-        document.getElementById('productCategory').value = product.category_id;
+        
+        // Set the category dropdown in the modal
+        // Ensure productCategoryModalSelect is already populated by initializePageData
+        productCategoryModalSelect.value = product.category_id || ""; // Handle if category_id is null/undefined
+
         document.getElementById('productPrice').value = product.price;
         document.getElementById('productStock').value = product.stock;
         document.getElementById('productStatus').value = product.status;
@@ -421,7 +409,6 @@ document.addEventListener('DOMContentLoaded', function() {
             showErrorToast('Product not found.');
             return;
         }
-
         if (confirm(`Are you sure you want to delete "${product.name}"?`)) {
             try {
                 const response = await fetch(`/api/products/${productId}`, { method: 'DELETE' });
@@ -445,33 +432,24 @@ document.addEventListener('DOMContentLoaded', function() {
             addProductForm.reportValidity();
             return;
         }
-
         const formData = new FormData(addProductForm);
         let url = '/api/products';
         let method = 'POST';
-
         if (currentProductId) {
             url = `/api/products/${currentProductId}`;
             method = 'PUT';
         }
-
         try {
             saveProductBtn.disabled = true;
             saveProductBtn.innerHTML = `<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Saving...`;
-
-            const response = await fetch(url, {
-                method: method,
-                body: formData
-            });
-
+            const response = await fetch(url, { method: method, body: formData });
             if (!response.ok) {
                 const errorData = await response.json().catch(() => ({ error: `Failed to ${currentProductId ? 'update' : 'create'} product` }));
                 throw new Error(errorData.error || 'Server error during save.');
             }
-            await fetchProducts(); 
+            await fetchProducts();
             addProductModal.hide();
             showSuccessToast(currentProductId ? 'Product successfully updated!' : 'Product successfully added!');
-            
         } catch (error) {
             console.error('Error saving product:', error);
             showErrorToast(`Error saving product: ${error.message}`);
@@ -483,18 +461,20 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // --- EVENT LISTENERS ---
     productSearch.addEventListener('input', renderProducts);
-    categoryFilterSelect.addEventListener('change', renderProducts); // Use updated variable name
+    categoryFilterSelect.addEventListener('change', renderProducts);
     saveProductBtn.addEventListener('click', handleSaveProduct);
     
     addProductModalEl.addEventListener('show.bs.modal', function (event) {
-        if (!currentProductId) { 
-            resetForm(); 
+        if (!currentProductId) {
+            resetForm();
         }
+        // If editing, handleEditProduct will have already populated the form.
+        // The category dropdown (productCategoryModalSelect) is populated once on page load.
     });
     addProductModalEl.addEventListener('hidden.bs.modal', resetForm);
 
     // Initial data load
-    initializePageData(); 
+    initializePageData();
 });
 </script>
 {% endblock %}
