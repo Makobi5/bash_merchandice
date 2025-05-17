@@ -2000,7 +2000,7 @@ def get_all_categories_api(): # Renamed to avoid conflict if you have other get_
         print(f"Error fetching all categories API: {type(e).__name__} - {e}")
         return jsonify({"error": "Failed to fetch categories"}), 500
     
-@app.route('/api/categories', methods=['POST']) # Using POST on the main /api/categories endpoint
+@app.route('/api/categories', methods=['POST'])
 @login_required
 def add_category_api():
     if not check_supabase():
@@ -2014,37 +2014,69 @@ def add_category_api():
         category_name = data['name'].strip()
 
         # Optional: Check if category already exists (by name, case-insensitive)
-        existing_category_response = supabase.table('categories') \
+        query_builder = supabase.table('categories') \
             .select('id, name') \
             .ilike('name', category_name) \
-            .maybe_single() \
-            .execute()
+            .maybe_single()
         
-        if existing_category_response.data:
-            # If you want to prevent duplicates and inform the user:
-            # return jsonify({'error': f"Category '{category_name}' already exists."}), 409 # 409 Conflict
-            # Or, if you want to return the existing one:
-            return jsonify(existing_category_response.data), 200 # Or 200 OK if returning existing
+        existing_category_response = query_builder.execute()
+        
+        # ---- ADD THIS CHECK ----
+        if existing_category_response is None:
+            # This is unexpected. Log it for investigation.
+            # If app.logger is configured:
+            # app.logger.error("Supabase query for existing category returned None. This is unexpected.")
+            print("CRITICAL: Supabase query for existing category returned None. This is unexpected.") # For console visibility
+            return jsonify({'error': 'Internal server error while checking category. Please investigate server logs.'}), 500
+        # ---- END OF ADDED CHECK ----
+
+        # Original line 2023:
+        if existing_category_response.data: # Now safe to access .data
+            # existing_category_response.data is a dict if found (due to maybe_single), or None if not found.
+            # If .data is a dict (category found), return it.
+            return jsonify(existing_category_response.data), 200 
+        
+        # If existing_category_response.data is None, it means no category was found by ilike().maybe_single().
+        # This is the correct path to proceed with insertion.
+        # print(f"No existing category found for '{category_name}'. Proceeding to insert.") # Optional debug
 
         # Insert new category
+        # To get the newly created category data back, chain .select().single() or .select().execute()
         insert_response = supabase.table('categories') \
             .insert({'name': category_name}) \
+            .select() \
+            .single() \
             .execute()
 
-        if insert_response.data and len(insert_response.data) > 0:
-            new_category = insert_response.data[0]
-            return jsonify({'id': new_category['id'], 'name': new_category['name']}), 201 # 201 Created
+        # ---- ADD CHECK FOR INSERT RESPONSE AS WELL ----
+        if insert_response is None:
+            # app.logger.error("Supabase insert category query returned None.")
+            print("CRITICAL: Supabase insert category query returned None.")
+            return jsonify({'error': 'Internal server error while adding category. Please investigate server logs.'}), 500
+        # ---- END OF ADDED CHECK ----
+
+        if insert_response.data: # .data will be a dict due to .single()
+            new_category = insert_response.data
+            return jsonify({'id': new_category['id'], 'name': new_category['name']}), 201
+        elif insert_response.error:
+            # app.logger.error(f"Supabase error inserting category: {insert_response.error.message}")
+            print(f"Supabase error inserting category: {insert_response.error.message}")
+            return jsonify({'error': f'Failed to create category: {insert_response.error.message}'}), 500
         else:
-            error_detail = "Unknown error during category insertion."
-            if hasattr(insert_response, 'error') and insert_response.error:
-                error_detail = insert_response.error.message
-            return jsonify({'error': f'Failed to create category: {error_detail}'}), 500
+            # This case (no data, no error) should be less likely with .select().single()
+            # unless RLS prevents returning the row even after insert.
+            # app.logger.warning("Category insert attempt returned no data and no error.")
+            print("WARNING: Category insert attempt returned no data and no error.")
+            return jsonify({'error': 'Failed to create category or retrieve its data after creation.'}), 500
 
     except Exception as e:
+        # This will catch the AttributeError if the above checks are not in place,
+        # or any other exception.
+        # app.logger.error(f"Error adding category API: {type(e).__name__} - {e}", exc_info=True)
         print(f"Error adding category API: {type(e).__name__} - {e}")
         import traceback
         traceback.print_exc()
-        return jsonify({'error': f'An unexpected error occurred: {str(e)}'}), 500    
+        return jsonify({'error': f'An unexpected error occurred: {str(e)}'}), 500   
 # --- REMOVED DUPLICATE format_ugx definition and incorrect return statement ---
 
 # =========================================
