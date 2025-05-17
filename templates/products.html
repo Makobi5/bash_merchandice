@@ -78,6 +78,7 @@
             </div>
             <div class="modal-body">
                 <form id="addProductForm" enctype="multipart/form-data">
+                    <!-- THIS ROW WAS MISSING -->
                     <div class="row mb-3">
                         <div class="col-md-6">
                             <label for="productName" class="form-label">Product Name <span class="text-danger">*</span></label>
@@ -88,15 +89,30 @@
                             <input type="text" class="form-control" id="productSKU" name="sku">
                         </div>
                     </div>
+                    <!-- END OF MISSING ROW -->
+
                     <div class="row mb-3">
                         <div class="col-md-6">
                             <label for="productCategory" class="form-label">Category <span class="text-danger">*</span></label>
                             <select class="form-select" id="productCategory" name="category_id" required>
                                 <option value="">Select Category</option>
-                                {% for category in categories %}
+                                <!-- Options will be populated by JS -->
+                                {# {% for category in categories %}
                                 <option value="{{ category.id }}">{{ category.name }}</option>
-                                {% endfor %}
+                                {% endfor %} #}
+                                <!-- Jinja loop can be commented out or removed as JS populates this -->
                             </select>
+                            <!-- New Category Input Section -->
+                            <div id="newCategorySection" class="mt-2" style="display:none;">
+                                <label for="newCategoryName" class="form-label visually-hidden">New Category Name</label>
+                                <div class="input-group">
+                                    <input type="text" class="form-control form-control-sm" id="newCategoryName" placeholder="Enter new category name...">
+                                    <button class="btn btn-success btn-sm" type="button" id="saveNewCategoryBtn">
+                                        <i class="bi bi-plus-lg"></i> Add
+                                    </button>
+                                </div>
+                                <div id="newCategoryError" class="text-danger small mt-1"></div>
+                            </div>
                         </div>
                         <div class="col-md-6">
                             <label for="productPrice" class="form-label">Unit Price <span class="text-danger">*</span></label>
@@ -106,6 +122,7 @@
                             </div>
                         </div>
                     </div>
+
                     <div class="row mb-3">
                         <div class="col-md-6">
                             <label for="productStock" class="form-label">Initial Stock <span class="text-danger">*</span></label>
@@ -131,7 +148,7 @@
                         <label for="productImage" class="form-label">Product Image <small class="text-muted">(Leave blank to keep current image when editing)</small></label>
                         <input type="file" class="form-control" id="productImage" name="image" accept="image/png, image/jpeg, image/gif">
                     </div>
-                </form>
+                </form> {/* This form tag should encompass all inputs */}
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
@@ -180,11 +197,18 @@ document.addEventListener('DOMContentLoaded', function() {
     let categoryMap = {};
     let allProducts = [];
     let currentProductId = null;
+    const ADD_NEW_CATEGORY_VALUE = "--add-new--"; // Constant for special value
 
     // DOM elements
     const productSearch = document.getElementById('productSearch');
     const categoryFilterSelect = document.getElementById('categoryFilter');
-    const productCategoryModalSelect = document.getElementById('productCategory'); // Added for modal dropdown
+    const productCategoryModalSelect = document.getElementById('productCategory');
+    // New DOM elements for adding a category
+    const newCategorySection = document.getElementById('newCategorySection');
+    const newCategoryNameInput = document.getElementById('newCategoryName');
+    const saveNewCategoryBtn = document.getElementById('saveNewCategoryBtn');
+    const newCategoryErrorEl = document.getElementById('newCategoryError');
+
     const productsTableBody = document.getElementById('productsTableBody');
     const addProductModalEl = document.getElementById('addProductModal');
     const addProductModal = new bootstrap.Modal(addProductModalEl);
@@ -228,13 +252,23 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     
     function resetForm() {
-        addProductForm.reset(); // This will reset select to its first option
+        addProductForm.reset();
         productImageInput.value = null;
         currentProductId = null;
         modalTitle.textContent = 'Add New Product';
         currentImageSection.style.display = 'none';
         currentProductImagePreview.src = '#';
-        // The #productCategory select will be reset to "Select Category" by addProductForm.reset()
+        
+        // Reset new category section
+        if (newCategorySection) newCategorySection.style.display = 'none';
+        if (newCategoryNameInput) newCategoryNameInput.value = '';
+        if (newCategoryErrorEl) newCategoryErrorEl.textContent = '';
+
+        // Ensure the modal's category dropdown is set to "Select Category"
+        // This is usually handled by addProductForm.reset() if the first option has value=""
+        if (productCategoryModalSelect && productCategoryModalSelect.options.length > 0 && productCategoryModalSelect.options[0].value === "") {
+            productCategoryModalSelect.value = "";
+        }
     }
 
     // --- DATA FETCHING AND RENDERING ---
@@ -243,41 +277,11 @@ document.addEventListener('DOMContentLoaded', function() {
             const categoriesResponse = await fetch('/api/categories');
             if (!categoriesResponse.ok) {
                 console.error('Failed to fetch categories from /api/categories');
-                showErrorToast('Could not load category list for filtering and mapping.');
+                showErrorToast('Could not load category list.');
             } else {
                 const categoriesData = await categoriesResponse.json();
                 console.log('Fetched categoriesData:', categoriesData);
-
-                categoryMap = {};
-                categoriesData.forEach(category => {
-                    categoryMap[category.id] = category.name;
-                });
-                console.log('Category map populated:', categoryMap);
-
-                // Populate main page filter dropdown
-                categoryFilterSelect.innerHTML = '<option value="">All Categories</option>';
-                if (categoriesData && categoriesData.length > 0) {
-                    categoriesData.forEach(category => {
-                        const option = document.createElement('option');
-                        option.value = category.id;
-                        option.textContent = category.name;
-                        categoryFilterSelect.appendChild(option);
-                    });
-                    console.log('Category filter dropdown populated by JavaScript.');
-                }
-
-                // --- START: Populate MODAL's category dropdown ---
-                productCategoryModalSelect.innerHTML = '<option value="">Select Category</option>'; // Default for modal
-                if (categoriesData && categoriesData.length > 0) {
-                    categoriesData.forEach(category => {
-                        const option = document.createElement('option');
-                        option.value = category.id;
-                        option.textContent = category.name;
-                        productCategoryModalSelect.appendChild(option);
-                    });
-                    console.log('Modal category dropdown (productCategory) populated by JavaScript.');
-                }
-                // --- END: Populate MODAL's category dropdown ---
+                populateCategoryDropdowns(categoriesData); // Call the new function
             }
         } catch (error) {
             console.error('Error in initializePageData (fetching categories):', error);
@@ -285,6 +289,118 @@ document.addEventListener('DOMContentLoaded', function() {
         } finally {
             await fetchProducts();
         }
+    }
+
+    function populateCategoryDropdowns(categoriesData) {
+        categoryMap = {}; // Reset map
+        if (categoriesData && Array.isArray(categoriesData)) {
+            categoriesData.forEach(category => {
+                categoryMap[category.id] = category.name;
+            });
+        }
+        console.log('Category map populated:', categoryMap);
+
+        // Populate main page filter dropdown
+        categoryFilterSelect.innerHTML = '<option value="">All Categories</option>';
+        if (categoriesData && categoriesData.length > 0) {
+            categoriesData.forEach(category => {
+                const option = document.createElement('option');
+                option.value = category.id;
+                option.textContent = category.name;
+                categoryFilterSelect.appendChild(option);
+            });
+        }
+
+        // Populate MODAL's category dropdown
+        productCategoryModalSelect.innerHTML = '<option value="">Select Category</option>'; // Default for modal
+        if (categoriesData && categoriesData.length > 0) {
+            categoriesData.forEach(category => {
+                const option = document.createElement('option');
+                option.value = category.id;
+                option.textContent = category.name;
+                productCategoryModalSelect.appendChild(option);
+            });
+        }
+        // Add the "+ Add New Category" option to the modal dropdown
+        const addNewOption = document.createElement('option');
+        addNewOption.value = ADD_NEW_CATEGORY_VALUE;
+        addNewOption.textContent = "+ Add New Category";
+        productCategoryModalSelect.appendChild(addNewOption);
+
+        console.log('Category dropdowns populated.');
+    }
+
+
+    // --- Event listener for modal category dropdown change ---
+    if (productCategoryModalSelect) {
+        productCategoryModalSelect.addEventListener('change', function() {
+            if (this.value === ADD_NEW_CATEGORY_VALUE) {
+                if(newCategorySection) newCategorySection.style.display = 'block';
+                if(newCategoryNameInput) newCategoryNameInput.focus();
+                if(newCategoryErrorEl) newCategoryErrorEl.textContent = '';
+            } else {
+                if(newCategorySection) newCategorySection.style.display = 'none';
+                if(newCategoryErrorEl) newCategoryErrorEl.textContent = '';
+            }
+        });
+    }
+
+    // --- Event listener for saving a new category ---
+    if (saveNewCategoryBtn) {
+        saveNewCategoryBtn.addEventListener('click', async function() {
+            const newName = newCategoryNameInput.value.trim();
+            newCategoryErrorEl.textContent = '';
+
+            if (!newName) {
+                newCategoryErrorEl.textContent = 'Category name cannot be empty.';
+                newCategoryNameInput.focus();
+                return;
+            }
+
+            saveNewCategoryBtn.disabled = true;
+            saveNewCategoryBtn.innerHTML = `<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Adding...`;
+
+            try {
+                const response = await fetch('/api/categories', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: newName })
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({ error: 'Failed to add category.' }));
+                    throw new Error(errorData.error || `Server error: ${response.status}`);
+                }
+
+                const addedCategory = await response.json(); 
+
+                categoryMap[addedCategory.id] = addedCategory.name;
+
+                const filterOption = document.createElement('option');
+                filterOption.value = addedCategory.id;
+                filterOption.textContent = addedCategory.name;
+                categoryFilterSelect.appendChild(filterOption);
+
+                const modalOption = document.createElement('option');
+                modalOption.value = addedCategory.id;
+                modalOption.textContent = addedCategory.name;
+                productCategoryModalSelect.insertBefore(modalOption, productCategoryModalSelect.querySelector(`option[value="${ADD_NEW_CATEGORY_VALUE}"]`));
+                
+                productCategoryModalSelect.value = addedCategory.id;
+
+                newCategorySection.style.display = 'none';
+                newCategoryNameInput.value = '';
+                showSuccessToast(`Category "${addedCategory.name}" added successfully!`);
+
+            } catch (error) {
+                console.error('Error adding new category:', error);
+                showErrorToast(`Error adding category: ${error.message}`);
+                if(newCategoryErrorEl) newCategoryErrorEl.textContent = error.message;
+            } finally {
+                saveNewCategoryBtn.disabled = false;
+                saveNewCategoryBtn.innerHTML = `<i class="bi bi-plus-lg"></i> Add`;
+            }
+        });
     }
 
     async function fetchProducts() {
@@ -383,9 +499,12 @@ document.addEventListener('DOMContentLoaded', function() {
         document.getElementById('productName').value = product.name;
         document.getElementById('productSKU').value = product.sku || '';
         
-        // Set the category dropdown in the modal
-        // Ensure productCategoryModalSelect is already populated by initializePageData
-        productCategoryModalSelect.value = product.category_id || ""; // Handle if category_id is null/undefined
+        productCategoryModalSelect.value = product.category_id || ""; 
+        // Ensure new category section is hidden if not actively adding
+        if (productCategoryModalSelect.value !== ADD_NEW_CATEGORY_VALUE && newCategorySection) {
+            newCategorySection.style.display = 'none';
+        }
+
 
         document.getElementById('productPrice').value = product.price;
         document.getElementById('productStock').value = product.stock;
@@ -428,6 +547,13 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     async function handleSaveProduct() {
+        // Check if user is trying to save product while "+ Add New Category" is selected
+        if (productCategoryModalSelect.value === ADD_NEW_CATEGORY_VALUE) {
+            showErrorToast("Please save the new category first or select an existing one.");
+            if (newCategoryNameInput) newCategoryNameInput.focus(); // Focus on the new category input
+            return;
+        }
+
         if (!addProductForm.checkValidity()) {
             addProductForm.reportValidity();
             return;
@@ -447,8 +573,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 const errorData = await response.json().catch(() => ({ error: `Failed to ${currentProductId ? 'update' : 'create'} product` }));
                 throw new Error(errorData.error || 'Server error during save.');
             }
-            await fetchProducts();
-            addProductModal.hide();
+            await fetchProducts(); // Refresh product list
+            addProductModal.hide(); // This will trigger 'hidden.bs.modal' which calls resetForm
             showSuccessToast(currentProductId ? 'Product successfully updated!' : 'Product successfully added!');
         } catch (error) {
             console.error('Error saving product:', error);
@@ -465,13 +591,14 @@ document.addEventListener('DOMContentLoaded', function() {
     saveProductBtn.addEventListener('click', handleSaveProduct);
     
     addProductModalEl.addEventListener('show.bs.modal', function (event) {
-        if (!currentProductId) {
-            resetForm();
+        if (!currentProductId) { // If adding a new product
+            resetForm(); 
         }
-        // If editing, handleEditProduct will have already populated the form.
-        // The category dropdown (productCategoryModalSelect) is populated once on page load.
+        // If editing, handleEditProduct has already set up the form.
+        // The newCategorySection visibility is handled by productCategoryModalSelect change event
+        // and also within handleEditProduct to ensure it's hidden initially if not adding new.
     });
-    addProductModalEl.addEventListener('hidden.bs.modal', resetForm);
+    addProductModalEl.addEventListener('hidden.bs.modal', resetForm); // Always reset after close
 
     // Initial data load
     initializePageData();

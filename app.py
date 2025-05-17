@@ -1999,6 +1999,52 @@ def get_all_categories_api(): # Renamed to avoid conflict if you have other get_
     except Exception as e:
         print(f"Error fetching all categories API: {type(e).__name__} - {e}")
         return jsonify({"error": "Failed to fetch categories"}), 500
+    
+@app.route('/api/categories', methods=['POST']) # Using POST on the main /api/categories endpoint
+@login_required
+def add_category_api():
+    if not check_supabase():
+        return jsonify({'error': 'Database connection failed'}), 500
+    
+    try:
+        data = request.get_json()
+        if not data or 'name' not in data or not data['name'].strip():
+            return jsonify({'error': 'Category name is required.'}), 400
+        
+        category_name = data['name'].strip()
+
+        # Optional: Check if category already exists (by name, case-insensitive)
+        existing_category_response = supabase.table('categories') \
+            .select('id, name') \
+            .ilike('name', category_name) \
+            .maybe_single() \
+            .execute()
+        
+        if existing_category_response.data:
+            # If you want to prevent duplicates and inform the user:
+            # return jsonify({'error': f"Category '{category_name}' already exists."}), 409 # 409 Conflict
+            # Or, if you want to return the existing one:
+            return jsonify(existing_category_response.data), 200 # Or 200 OK if returning existing
+
+        # Insert new category
+        insert_response = supabase.table('categories') \
+            .insert({'name': category_name}) \
+            .execute()
+
+        if insert_response.data and len(insert_response.data) > 0:
+            new_category = insert_response.data[0]
+            return jsonify({'id': new_category['id'], 'name': new_category['name']}), 201 # 201 Created
+        else:
+            error_detail = "Unknown error during category insertion."
+            if hasattr(insert_response, 'error') and insert_response.error:
+                error_detail = insert_response.error.message
+            return jsonify({'error': f'Failed to create category: {error_detail}'}), 500
+
+    except Exception as e:
+        print(f"Error adding category API: {type(e).__name__} - {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': f'An unexpected error occurred: {str(e)}'}), 500    
 # --- REMOVED DUPLICATE format_ugx definition and incorrect return statement ---
 
 # =========================================
