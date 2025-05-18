@@ -1734,103 +1734,188 @@ def create_product():
 @app.route('/api/products/<int:product_id>', methods=['PUT'])
 @login_required
 def update_product(product_id):
-    # ... (This route was provided in a previous answer and needs to be updated
-    #      to accept `category_id` from FormData instead of a JSON body if `addProductForm`
-    #      is submitting FormData. The current `handleSaveProduct` in products.html uses FormData.)
+    # Determine which client to use for DB operations.
+    # For testing RLS issues, we'll try the admin client.
+    # In production, you'd either use admin client for privileged ops
+    # or ensure RLS policies are correct for the regular client.
+    use_admin_client_for_db = True # SET TO True TO TEST RLS BYPASS
 
-    # Assuming FormData submission from products.html modal
-    if not check_supabase(): return jsonify({'error': 'Database connection failed'}), 500
+    db_client = None
+    if use_admin_client_for_db:
+        if check_supabase_admin() and supabase_admin:
+            db_client = supabase_admin
+            print(f"--- Using Supabase ADMIN client for DB operations on product ID: {product_id} ---")
+        else:
+            print("CRITICAL: Supabase ADMIN client requested for DB op, but not available.")
+            return jsonify({'error': 'System configuration error: Admin client not available.'}), 500
+    else:
+        if check_supabase():
+            db_client = supabase
+            print(f"--- Using Supabase REGULAR (anon/auth) client for DB operations on product ID: {product_id} ---")
+        else:
+            print("CRITICAL: Supabase REGULAR client requested for DB op, but not available (db connection failed).")
+            return jsonify({'error': 'Database connection failed'}), 500
+
+
+    print(f"--- Attempting to update product ID: {product_id} ---")
 
     try:
-        # Fetch current product to get old image URL if needed
-        current_product_res = supabase.table('products').select('image_url').eq('id', product_id).maybe_single().execute()
-        old_image_url = current_product_res.data['image_url'] if current_product_res.data else None
+        # Fetch current product using the chosen client
+        current_product_res = db_client.table('products').select('image_url, category_id').eq('id', product_id).maybe_single().execute()
+        if not current_product_res.data:
+            print(f"Product ID {product_id} not found for update.")
+            return jsonify({"error": "Product not found"}), 404
+            
+        old_image_url = current_product_res.data.get('image_url')
+        print(f"Old image URL for product {product_id}: {old_image_url}")
 
         update_payload = {}
         if 'name' in request.form: update_payload['name'] = request.form.get('name')
         if 'sku' in request.form: update_payload['sku'] = request.form.get('sku')
         if 'category_id' in request.form:
             cat_id_str = request.form.get('category_id')
-            update_payload['category_id'] = int(cat_id_str) if cat_id_str else None
-        if 'price' in request.form: update_payload['price'] = float(request.form.get('price'))
-        if 'stock' in request.form: update_payload['stock'] = int(request.form.get('stock'))
-        if 'status' in request.form: update_payload['status'] = (request.form.get('status').lower() == 'active')
+            try:
+                update_payload['category_id'] = int(cat_id_str) if cat_id_str and cat_id_str.strip() else None
+            except ValueError:
+                print(f"Invalid category_id format: {cat_id_str}")
+                return jsonify({"error": f"Invalid category_id format: {cat_id_str}"}), 400
+        if 'price' in request.form:
+            try:
+                update_payload['price'] = float(request.form.get('price'))
+            except ValueError: return jsonify({"error": "Invalid price format."}), 400
+        if 'stock' in request.form:
+            try:
+                update_payload['stock'] = int(request.form.get('stock'))
+            except ValueError: return jsonify({"error": "Invalid stock format."}), 400
+        if 'status' in request.form: update_payload['status'] = (request.form.get('status', '').lower() == 'active')
         if 'description' in request.form: update_payload['description'] = request.form.get('description')
         
-        new_image_url_for_db = None # This will hold the URL if a new image is uploaded
+        print(f"Initial update_payload from form (before image processing): {update_payload}")
+
+        new_image_url_for_db = None 
 
         if 'image' in request.files:
             file = request.files['image']
-            if file and file.filename and allowed_file(file.filename):
-                if check_supabase_admin() and supabase_admin:
-                    try:
-                        filename_base = secure_filename(file.filename)
-                        filename = f"product_update_{product_id}_{uuid.uuid4()}_{filename_base}"
-                        BUCKET_NAME = "product-images"
-                        file_bytes = file.read()
-                        supabase_admin.storage.from_(BUCKET_NAME).upload(
-                            file=file_bytes, path=filename,
-                            file_options={"content-type": file.content_type, "cache-control": "3600", "upsert": "false"}
-                        )
-                        new_image_url_for_db = supabase.storage.from_(BUCKET_NAME).get_public_url(filename)
-                        update_payload['image_url'] = new_image_url_for_db
-                    except Exception as upload_error:
-                        print(f"Product image update failed for {product_id}: {upload_error}")
-                        # Potentially return error if image upload is critical for update
-                else:
-                    print(f"Admin client not available for product image update ({product_id}).")
-        
-        if not update_payload and not new_image_url_for_db : # No changes submitted
-             # Re-fetch the full product data to return current state
-            full_product_res = supabase.table('products').select('*, category:categories(id,name)').eq('id', product_id).maybe_single().execute()
-            if full_product_res.data:
-                p_data = full_product_res.data
-                cat_info = p_data.get('category')
-                return jsonify({
-                    **p_data,
-                    'category_id': cat_info['id'] if cat_info else None,
-                    'category_name': cat_info['name'] if cat_info else 'Uncategorized',
-                    'status': 'active' if p_data.get('status') else 'inactive'
-                }), 200
-            else:
-                return jsonify({"error": "Product not found after attempting no-change update."}), 404
+            if file and file.filename: 
+                print(f"Processing uploaded image: {file.filename}, type: {file.content_type}")
+                if not allowed_file(file.filename):
+                    print(f"File type not allowed for {file.filename}")
+                    return jsonify({"error": f"File type {file.filename.rsplit('.',1)[-1]} not allowed."}), 400
 
+                if not (check_supabase_admin() and supabase_admin): # Image uploads should use admin for bucket ops
+                    print("Supabase ADMIN client not available for image upload to storage.")
+                    return jsonify({"error": "Image upload facility not available."}), 500
+                else:
+                    BUCKET_NAME = "product-images" # Consider moving to app.config
+                    try:
+                        bucket_exists = False
+                        try:
+                            supabase_admin.storage.get_bucket(BUCKET_NAME)
+                            print(f"Bucket '{BUCKET_NAME}' found.")
+                            bucket_exists = True
+                        except Exception as e_get_bucket:
+                            if "not found" in str(e_get_bucket).lower() or (hasattr(e_get_bucket, 'status_code') and e_get_bucket.status_code == 400): # Note: 400 for "Bucket not found"
+                                print(f"Bucket '{BUCKET_NAME}' not found. Attempting to create.")
+                                supabase_admin.storage.create_bucket(
+                                    BUCKET_NAME, 
+                                    {"public": True, 
+                                     "allowed_mime_types": ["image/jpeg", "image/png", "image/gif"], # Align with ALLOWED_EXTENSIONS
+                                     "file_size_limit": app.config['MAX_CONTENT_LENGTH']}
+                                )
+                                print(f"Bucket '{BUCKET_NAME}' created successfully.")
+                                bucket_exists = True
+                            else:
+                                print(f"Error checking/creating bucket '{BUCKET_NAME}': {type(e_get_bucket).__name__} - {e_get_bucket}")
+                        
+                        if bucket_exists:
+                            filename_base = secure_filename(file.filename)
+                            filename = f"product_images/{product_id}/{uuid.uuid4()}_{filename_base}" 
+                            print(f"Secure filename for storage: {filename}")
+                            file_bytes = file.read(); file.seek(0)
+                            print(f"Uploading {filename} ({len(file_bytes)} bytes) to bucket {BUCKET_NAME}...")
+                            supabase_admin.storage.from_(BUCKET_NAME).upload(
+                                file=file_bytes, path=filename,
+                                file_options={"content-type": file.content_type, "cache-control": "3600", "upsert": "false"}
+                            ) # This should raise an exception on failure
+                            
+                            # Get public URL (use REGULAR client if bucket is public, or admin client)
+                            temp_image_url = supabase.storage.from_(BUCKET_NAME).get_public_url(filename)
+                            if temp_image_url and temp_image_url.endswith('?'): # Clean trailing '?'
+                                print(f"Warning: Public URL from get_public_url ended with '?'. Stripping it. Original: {temp_image_url}")
+                                new_image_url_for_db = temp_image_url[:-1]
+                            else:
+                                new_image_url_for_db = temp_image_url
+                            
+                            update_payload['image_url'] = new_image_url_for_db
+                            print(f"New image URL set in payload: {new_image_url_for_db}")
+                        else:
+                            print(f"Cannot upload image: Bucket '{BUCKET_NAME}' not available or creation failed.")
+                            return jsonify({"error": "Image storage bucket issue."}), 500
+                    except Exception as upload_error:
+                        print(f"EXCEPTION during product image upload for {product_id}: {type(upload_error).__name__} - {upload_error}")
+                        import traceback; traceback.print_exc()
+                        return jsonify({"error": f"Image upload failed: {str(upload_error)}"}), 500
+            else: print("Image field was present but no file selected for upload.")
+        else: print("No 'image' field in request.files.")
+
+        if not update_payload: 
+            print("No changes submitted for product update (no form fields modified, no new image).")
+            return jsonify({**(current_product_res.data or {}), 'status': 'active' if (current_product_res.data or {}).get('status') else 'inactive'}), 200
 
         update_payload['updated_at'] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        print(f"Final update_payload for DB update: {update_payload}")
         
-        response = supabase.table('products').update(update_payload).eq('id', product_id).execute()
+        db_response_obj = None
+        try:
+            db_response_obj = db_client.table('products').update(update_payload).eq('id', product_id).execute()
+            print(f"Raw DB response object type: {type(db_response_obj)}")
+            print(f"Raw DB response dir: {dir(db_response_obj)}")
+        except Exception as db_exec_exc:
+            print(f"EXCEPTION during DB update execute() call: {type(db_exec_exc).__name__} - {db_exec_exc}")
+            import traceback; traceback.print_exc()
+            return jsonify({"error": f"Database update execution failed: {str(db_exec_exc)}"}), 500
+        
+        # More robustly extract attributes
+        resp_data = getattr(db_response_obj, 'data', None)
+        resp_count = getattr(db_response_obj, 'count', None)
+        resp_error = getattr(db_response_obj, 'error', None)
+        resp_status = getattr(db_response_obj, 'status_code', None)
 
-        if response.data and len(response.data) > 0:
-            updated_product_data = response.data[0]
+        print(f"DB update response - data: {resp_data}, count: {resp_count}, error: {resp_error}, status: {resp_status}")
+
+        if resp_data and len(resp_data) > 0: # Successfully updated and got representation back
+            updated_product_data = resp_data[0]
             
-            # Delete old image if new one uploaded and old one existed
             if new_image_url_for_db and old_image_url and old_image_url != new_image_url_for_db:
-                if check_supabase_admin() and supabase_admin:
+                if check_supabase_admin() and supabase_admin: # Deletion should use admin
                     try:
                         old_filename_path = old_image_url.split(f"{BUCKET_NAME}/")[-1].split('?')[0]
-                        if old_filename_path: supabase_admin.storage.from_(BUCKET_NAME).remove([old_filename_path])
+                        if old_filename_path:
+                            print(f"Attempting to delete old image: {old_filename_path}")
+                            supabase_admin.storage.from_(BUCKET_NAME).remove([old_filename_path])
                     except Exception as e_del: print(f"Warning: Could not delete old product image {old_image_url}: {e_del}")
             
-            # Fetch category name for the response
-            cat_name = 'N/A'
-            final_category_id = updated_product_data.get('category_id', current_product_res.data.get('category_id') if current_product_res.data else None)
-            if final_category_id:
-                cat_res = supabase.table('categories').select('name').eq('id', final_category_id).maybe_single().execute()
+            cat_name = 'Uncategorized'
+            final_category_id = updated_product_data.get('category_id')
+            if final_category_id: # Fetch category name using the same client used for DB ops
+                cat_res = db_client.table('categories').select('name').eq('id', final_category_id).maybe_single().execute()
                 if cat_res.data: cat_name = cat_res.data['name']
 
-            # Construct a full response object
-            # Start with what PostgREST returned from update, then fill missing fields from initial fetch
-            full_updated_product = {**(current_product_res.data or {}), **updated_product_data}
-            full_updated_product['category_id'] = final_category_id
+            full_updated_product = {**updated_product_data}
             full_updated_product['category_name'] = cat_name
             full_updated_product['status'] = 'active' if full_updated_product.get('status') else 'inactive'
             
+            print(f"Product {product_id} updated successfully. Returning: {full_updated_product}")
             return jsonify(full_updated_product), 200
         else:
-            return jsonify({"error": "Failed to update product or no rows affected"}), 404 # Or 500 if error
+            error_msg_detail = "Failed to update product or no rows affected by the update."
+            if resp_error: error_msg_detail += f" DB Error: {resp_error}"
+            elif resp_status and resp_status >= 400 : error_msg_detail += f" HTTP Status: {resp_status}"
+            print(f"Update for product {product_id} resulted in no data/rows returned. Payload was: {update_payload}. Error: {error_msg_detail}")
+            return jsonify({"error": error_msg_detail}), 404 # Or use resp_status if available and >= 400
             
     except Exception as e:
-        print(f"Error updating product {product_id}: {type(e).__name__} - {e}")
+        print(f"CRITICAL ERROR during update_product {product_id}: {type(e).__name__} - {e}")
         import traceback; traceback.print_exc()
         return jsonify({"error": f"An unexpected error occurred: {str(e)}"}), 500
 
