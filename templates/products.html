@@ -346,7 +346,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     // --- Event listener for saving a new category ---
-    if (saveNewCategoryBtn) {
+if (saveNewCategoryBtn) {
         saveNewCategoryBtn.addEventListener('click', async function() {
             const newName = newCategoryNameInput.value.trim();
             newCategoryErrorEl.textContent = '';
@@ -358,7 +358,7 @@ document.addEventListener('DOMContentLoaded', function() {
             }
 
             saveNewCategoryBtn.disabled = true;
-            saveNewCategoryBtn.innerHTML = `<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Adding...`;
+             saveNewCategoryBtn.innerHTML = `<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Adding...`;
 
             try {
                 const response = await fetch('/api/categories', {
@@ -367,30 +367,49 @@ document.addEventListener('DOMContentLoaded', function() {
                     body: JSON.stringify({ name: newName })
                 });
 
+                // const addedCategory = await response.json(); // Original line
+                // Check response.ok before parsing JSON
                 if (!response.ok) {
-                    const errorData = await response.json().catch(() => ({ error: 'Failed to add category.' }));
+                    const errorData = await response.json().catch(() => ({ error: 'Failed to add category. Server returned an error.' }));
                     throw new Error(errorData.error || `Server error: ${response.status}`);
                 }
-
-                const addedCategory = await response.json(); 
-
-                categoryMap[addedCategory.id] = addedCategory.name;
-
-                const filterOption = document.createElement('option');
-                filterOption.value = addedCategory.id;
-                filterOption.textContent = addedCategory.name;
-                categoryFilterSelect.appendChild(filterOption);
-
-                const modalOption = document.createElement('option');
-                modalOption.value = addedCategory.id;
-                modalOption.textContent = addedCategory.name;
-                productCategoryModalSelect.insertBefore(modalOption, productCategoryModalSelect.querySelector(`option[value="${ADD_NEW_CATEGORY_VALUE}"]`));
                 
-                productCategoryModalSelect.value = addedCategory.id;
+                const addedCategory = await response.json(); // Now safe to parse
 
-                newCategorySection.style.display = 'none';
-                newCategoryNameInput.value = '';
-                showSuccessToast(`Category "${addedCategory.name}" added successfully!`);
+                // DEBUG: Log what the frontend receives
+                console.log("Response from /api/categories POST:", addedCategory);
+
+                // Ensure addedCategory and addedCategory.name are defined before using
+                if (addedCategory && addedCategory.id && addedCategory.name) {
+                    categoryMap[addedCategory.id] = addedCategory.name;
+
+                    const filterOption = document.createElement('option');
+                    filterOption.value = addedCategory.id;
+                    filterOption.textContent = addedCategory.name;
+                    categoryFilterSelect.appendChild(filterOption);
+
+                    const modalOption = document.createElement('option');
+                    modalOption.value = addedCategory.id;
+                    modalOption.textContent = addedCategory.name;
+                    // Insert before the "Add New Category" special option
+                    const addNewOptElement = productCategoryModalSelect.querySelector(`option[value="${ADD_NEW_CATEGORY_VALUE}"]`);
+                    if (addNewOptElement) {
+                        productCategoryModalSelect.insertBefore(modalOption, addNewOptElement);
+                    } else { // Fallback if special option not found
+                        productCategoryModalSelect.appendChild(modalOption);
+                    }
+                    
+                    productCategoryModalSelect.value = addedCategory.id; // Select the newly added category
+
+                    newCategorySection.style.display = 'none';
+                    newCategoryNameInput.value = '';
+                    // **** THIS IS THE FIX for "undefined" ****
+                    showSuccessToast(`Category "${addedCategory.name}" added successfully!`); 
+                } else {
+                    // This case means the API returned success (200/201) but the JSON was not as expected
+                    console.error("Received success from API, but category data is malformed:", addedCategory);
+                    throw new Error("Received incomplete category data from server.");
+                }
 
             } catch (error) {
                 console.error('Error adding new category:', error);
