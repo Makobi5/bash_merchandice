@@ -1608,6 +1608,7 @@ def get_products():
                     'status': 'active' if p_data.get('status') else 'inactive', 
                     'description': p_data.get('description'),
                     'image_url': p_data.get('image_url'),
+                    'unit_of_measure': p_data.get('unit_of_measure'),
                     'created_at': p_data.get('created_at'),
                     'updated_at': p_data.get('updated_at')
                 })
@@ -1645,6 +1646,7 @@ def get_product(product_id):
             'stock': response.data['stock'],
             'status': 'active' if response.data['status'] else 'inactive',
             'description': response.data['description'],
+            'unit_of_measure': p_data.get('unit_of_measure'),
             'created_at': response.data['created_at'],
             'updated_at': response.data['updated_at']
         }
@@ -1707,6 +1709,7 @@ def create_product():
             'name': name, 'sku': sku, 'category_id': category_id, 'price': price,
             'stock': stock, 'status': (status_form.lower() == 'active'),
             'description': description, 'image_url': image_url,
+            'unit_of_measure': unit_of_measure if unit_of_measure else None,
             # created_at and updated_at are usually handled by DB defaults
         }
         
@@ -1904,6 +1907,7 @@ def update_product(product_id):
             full_updated_product = {**updated_product_data}
             full_updated_product['category_name'] = cat_name
             full_updated_product['status'] = 'active' if full_updated_product.get('status') else 'inactive'
+            full_updated_product['unit_of_measure'] = updated_product_data.get('unit_of_measure', (current_product_res.data or {}).get('unit_of_measure'))
             
             print(f"Product {product_id} updated successfully. Returning: {full_updated_product}")
             return jsonify(full_updated_product), 200

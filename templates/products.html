@@ -36,6 +36,7 @@
                         <th scope="col">Product Name</th>
                         <th scope="col">SKU</th>
                         <th scope="col">Category</th>
+                        <th scope="col">Unit of Measure</th>
                         <th scope="col" class="text-end">Unit Price</th>
                         <th scope="col" class="text-center">Stock</th>
                         <th scope="col">Status</th>
@@ -45,7 +46,7 @@
                 <tbody id="productsTableBody">
                     <!-- Product rows will be dynamically inserted here by JavaScript -->
                     <tr>
-                        <td colspan="9" class="text-center py-4">Loading products...</td>
+                        <td colspan="10" class="text-center py-4">Loading products...</td>
                     </tr>
                 </tbody>
             </table>
@@ -129,6 +130,10 @@
                             <input type="number" class="form-control" id="productStock" name="stock" min="0" required>
                         </div>
                         <div class="col-md-6">
+                    <div class="col-md-4"> <!-- Adjusted col width -->
+                            <label for="productUOM" class="form-label">Unit of Measure</label>
+                            <input type="text" class="form-control" id="productUOM" name="unit_of_measure" placeholder="e.g., piece, tray, crate, kg">
+                        </div>        
                             <label for="productStatus" class="form-label">Status <span class="text-danger">*</span></label>
                             <select class="form-select" id="productStatus" name="status" required>
                                 <option value="active" selected>Active</option>
@@ -432,7 +437,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     async function fetchProducts() {
-        productsTableBody.innerHTML = `<tr><td colspan="9" class="text-center py-4">Loading products...</td></tr>`;
+        productsTableBody.innerHTML = `<tr><td colspan="10" class="text-center py-4">Loading products...</td></tr>`;
         try {
             const response = await fetch('/api/products');
             if (!response.ok) {
@@ -445,7 +450,7 @@ document.addEventListener('DOMContentLoaded', function() {
         } catch (error) {
             console.error('Error fetching products:', error);
             showErrorToast(`Error fetching products: ${error.message}`);
-            productsTableBody.innerHTML = `<tr><td colspan="9" class="text-center py-4">Could not load products.</td></tr>`;
+            productsTableBody.innerHTML = `<tr><td colspan="10" class="text-center py-4">Could not load products.</td></tr>`
         }
     }
 
@@ -474,7 +479,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         productsTableBody.innerHTML = '';
         if (filteredProducts.length === 0) {
-            productsTableBody.innerHTML = `<tr><td colspan="9" class="text-center py-4">No products found.</td></tr>`;
+            productsTableBody.innerHTML = `<tr><td colspan="10" class="text-center py-4">No products found.</td></tr>`; // Colspan is 10
             return;
         }
         filteredProducts.forEach(product => {
@@ -485,6 +490,11 @@ document.addEventListener('DOMContentLoaded', function() {
             const statusBadge = product.status === 'active' ? `<span class="badge bg-success">Active</span>` : `<span class="badge bg-secondary">Inactive</span>`;
             const imageUrl = product.image_url || '/static/images/placeholder_product.png';
             const categoryName = product.category_name || categoryMap[product.category_id] || 'Uncategorized';
+            
+            // *****  DEFINE unitOfMeasureDisplay HERE *****
+            const unitOfMeasureDisplay = product.unit_of_measure || 'N/A'; 
+            // ********************************************
+
             const row = `
                 <tr data-id="${product.id}" data-display-id="${product.display_id}">
                     <td>${product.display_id}</td>
@@ -492,6 +502,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     <td>${product.name}</td>
                     <td>${product.sku || 'N/A'}</td>
                     <td>${categoryName}</td>
+                    <td>${unitOfMeasureDisplay}</td>
                     <td class="text-end">UGX ${formatCurrency(product.price)}</td>
                     <td class="text-center ${stockClass}">${product.stock}</td>
                     <td>${statusBadge}</td>
@@ -535,6 +546,7 @@ document.addEventListener('DOMContentLoaded', function() {
         document.getElementById('productStock').value = product.stock;
         document.getElementById('productStatus').value = product.status;
         document.getElementById('productDescription').value = product.description || '';
+        document.getElementById('productUOM').value = product.unit_of_measure || '';
         productImageInput.value = null;
 
         if (product.image_url) {
