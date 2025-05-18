@@ -1919,68 +1919,95 @@ def update_product(product_id):
         import traceback; traceback.print_exc()
         return jsonify({"error": f"An unexpected error occurred: {str(e)}"}), 500
 
-# The next route definition should start here, correctly unindented
+# app.py
+
 @app.route('/api/products/<int:product_id>', methods=['DELETE'])
 @login_required
 def delete_product(product_id):
-    # ... implementation of delete_product ...
-    if not check_supabase():
-        return jsonify({'error': 'Database connection failed'}), 500
-    # ... rest of your delete logic
+    if not (check_supabase_admin() and supabase_admin):
+        print(f"--- delete_product({product_id}): Supabase ADMIN client not available.")
+        return jsonify({'error': 'System configuration error: Admin client unavailable for delete.'}), 500
+    
+    db_client = supabase_admin
+    print(f"--- delete_product({product_id}): Attempting delete using ADMIN client. ---")
+
     try:
-        # First check if product exists
-        check_response = supabase.table('products') \
-            .select('id, image_url') \
+        # 1. Fetch product details first (optional, but good for getting image_url)
+        product_to_delete_response = db_client.table('products') \
+            .select('id, image_url, name') \
             .eq('id', product_id) \
             .maybe_single() \
             .execute()
-            
-        if not check_response.data:
+
+        if not product_to_delete_response.data:
+            print(f"--- delete_product({product_id}): Product not found in DB before attempting delete.")
             return jsonify({"error": "Product not found"}), 404
         
-        product_to_delete = check_response.data
-        old_image_url_to_delete = product_to_delete.get('image_url')
+        product_name_for_log = product_to_delete_response.data.get('name', 'N/A')
+        old_image_url_to_delete = product_to_delete_response.data.get('image_url')
+        print(f"--- delete_product({product_id}): Product '{product_name_for_log}' found. Image URL: {old_image_url_to_delete}")
 
-        # Delete the product from the database
-        delete_db_response = supabase.table('products') \
+        # 2. Delete the product from the database
+        delete_db_response = db_client.table('products') \
             .delete() \
             .eq('id', product_id) \
             .execute()
         
-        # supabase-py v1+ delete().execute() typically returns data (list of deleted items) if successful
-        # and raises an exception on API error.
-        if not delete_db_response.data or len(delete_db_response.data) == 0:
-            # This might happen if the ID didn't match or RLS prevented deletion without an error
-            print(f"--- delete_product({product_id}): Product not found for deletion or no data returned from DB delete. Response: {delete_db_response}")
-            return jsonify({"error": "Product not found or delete not confirmed by database"}), 404
-            
-        print(f"--- delete_product({product_id}): Successfully deleted product from DB.")
+        resp_data = getattr(delete_db_response, 'data', None)
+        resp_count = getattr(delete_db_response, 'count', None) 
+        resp_error = getattr(delete_db_response, 'error', None)
+        resp_status_code = getattr(delete_db_response, 'status_code', None)
 
-        # If product had an image, delete it from storage
+        print(f"--- delete_product({product_id}): DB delete response - status_code: {resp_status_code}, data: {resp_data}, count: {resp_count}, error: {resp_error}")
+
+        # Primary check: Was there an explicit error from the Supabase client/PostgREST?
+        if resp_error:
+            db_error_message = getattr(resp_error, 'message', 'Unknown database error during delete.')
+            print(f"--- delete_product({product_id}): Error during DB delete: {db_error_message}")
+            return jsonify({"error": f"Failed to delete product from database: {db_error_message}"}), resp_status_code or 500
+
+        # MODIFIED SUCCESS CONDITION:
+        # If no error, and data is returned (meaning representation=success), consider it a success.
+        # Or, if status_code is explicitly 204 (No Content).
+        delete_successful = False
+        if resp_data and isinstance(resp_data, list) and len(resp_data) > 0:
+            # This is our current case: data is returned!
+            print(f"--- delete_product({product_id}): Product delete confirmed by returned data.")
+            delete_successful = True
+        elif resp_status_code == 204:
+            print(f"--- delete_product({product_id}): Product delete confirmed by HTTP status 204 (No Content).")
+            delete_successful = True
+        
+        if not delete_successful:
+            # If no explicit error, but also no positive confirmation (no data, status not 204)
+            print(f"--- delete_product({product_id}): Product delete from DB not confirmed. Status: {resp_status_code}, Data: {resp_data}. Payload might not have matched any row or other issue.")
+            return jsonify({"error": "Product not found or delete operation failed at the database."}), resp_status_code or 404
+            
+        print(f"--- delete_product({product_id}): Successfully processed delete for product '{product_name_for_log}' from DB logic.")
+
+        # 3. If product had an image, delete it from storage
         if old_image_url_to_delete:
-            BUCKET_NAME = "product-images"
+            BUCKET_NAME = "product-images" 
             try:
-                old_filename_with_query = old_image_url_to_delete.split(f"{BUCKET_NAME}/")[-1]
-                old_filename = old_filename_with_query.split('?')[0]
-                if old_filename:
-                    print(f"--- delete_product({product_id}): Attempting to delete image: {old_filename} from bucket {BUCKET_NAME} using ADMIN client.")
-                    if not check_supabase_admin() or supabase_admin is None:
-                        print(f"--- delete_product({product_id}): Supabase ADMIN client not available for deleting image.")
-                    else:
-                        supabase_admin.storage.from_(BUCKET_NAME).remove([old_filename])
-                        print(f"--- delete_product({product_id}): Successfully deleted image: {old_filename}")
+                url_parts = old_image_url_to_delete.split(f"/{BUCKET_NAME}/")
+                if len(url_parts) > 1:
+                    old_filename_path = url_parts[-1].split('?')[0] 
+                    if old_filename_path:
+                        print(f"--- delete_product({product_id}): Attempting to delete image: {old_filename_path} from bucket {BUCKET_NAME} using ADMIN client.")
+                        supabase_admin.storage.from_(BUCKET_NAME).remove([old_filename_path])
+                        print(f"--- delete_product({product_id}): Storage remove call executed for image: {old_filename_path}")
+                    else: print(f"--- delete_product({product_id}): Could not extract valid filename path from URL: {old_image_url_to_delete}")
+                else: print(f"--- delete_product({product_id}): Could not parse BUCKET_NAME from image URL: {old_image_url_to_delete}")
             except Exception as e_del_img:
-                print(f"--- delete_product({product_id}): WARNING - Could not delete product image {old_image_url_to_delete}: {e_del_img}")
+                print(f"--- delete_product({product_id}): WARNING - Could not delete product image {old_image_url_to_delete}. Error: {type(e_del_img).__name__} - {e_del_img}")
 
         return jsonify({"message": "Product deleted successfully"}), 200
+
     except Exception as e:
-        print(f"--- delete_product({product_id}): Error deleting product: {type(e).__name__} - {e}")
+        print(f"--- delete_product({product_id}): UNEXPECTED Error: {type(e).__name__} - {e}")
         import traceback
         traceback.print_exc()
-        error_message = str(e)
-        if hasattr(e, 'message') and e.message: error_message = e.message
-        elif hasattr(e, 'details') and e.details: error_message = e.details
-        return jsonify({"error": f"Failed to delete product: {error_message}"}), 500       
+        return jsonify({"error": f"Failed to delete product due to an unexpected server error."}), 500   
 
 @app.route('/api/products/<int:product_id>/image', methods=['POST'])
 @login_required
