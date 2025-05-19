@@ -6,15 +6,15 @@
 {% block styles %}
 <style>
     .product-row { margin-bottom: 10px; display: flex; align-items: center; gap: 0.5rem; }
-    #grandTotalDisplay, #amountPaidInput, #balanceDueDisplay { font-size: 1.2em; font-weight: bold; } /* Matched runningTotal to grandTotalDisplay */
-    .product-category-filter { margin-bottom: 1rem; }
-    .item-total-display, #amountPaidInput { text-align: right; }
+    #grandTotalDisplay, #amountPaidInput, #balanceDueDisplay { font-size: 1.2em; font-weight: bold; }
+    .product-category-filter { margin-bottom: 1rem; } /* Style for the filter row */
+    .item-total-display, #amountPaidInput { text-align: right; } /* Ensure amount paid is right-aligned if desired */
 </style>
 {% endblock %}
 
 {% block content %}
 <div class="container mt-4">
-    {# Hidden div to store product data as JSON string - PASSED AS products_json_for_js #}
+    {# Hidden div to store product data as JSON string #}
     <div id="productsDataStore" data-products="{{ products_json_for_js | tojson | safe if products_json_for_js else '[]' }}" style="display: none;"></div>
 
     <div class="card">
@@ -23,14 +23,14 @@
         </div>
         <div class="card-body">
             <form method="POST" id="addTransactionForm">
-                {# Customer & Payment Method #}
+                {# Customer & Payment Method - (no changes here, keep as is) ... #}
                 <div class="row mb-3">
                     <div class="col-md-4">
                         <label for="customer_selection_type" class="form-label">Customer Type</label>
-                        <select class="form-select" id="customer_selection_type">
-                            <option value="walk_in" selected>Walk-in Customer</option>
-                            <option value="existing">Select Existing Customer</option>
-                            <option value="new">Enter New Customer Name</option>
+                        <select class="form-select" id="customer_selection_type" name="customer_selection_type"> {# Added name attribute #}
+                            <option value="walk_in" {% if (form_data and form_data.customer_selection_type == 'walk_in') or not form_data %}selected{% endif %}>Walk-in Customer</option>
+                            <option value="existing" {% if form_data and form_data.customer_selection_type == 'existing' %}selected{% endif %}>Select Existing Customer</option>
+                            <option value="new" {% if form_data and form_data.customer_selection_type == 'new' %}selected{% endif %}>Enter New Customer Name</option>
                         </select>
                     </div>
                     <div class="col-md-4" id="existingCustomerSection" style="display:none;">
@@ -45,8 +45,8 @@
                         </select>
                     </div>
                     <div class="col-md-4" id="newCustomerNameSection" style="display:none;">
-                        <label for="new_customer_name" class="form-label">New Customer Name</label>
-                        <input type="text" class="form-control" id="new_customer_name" name="new_customer_name_field" placeholder="Enter customer name"> {# Changed name to avoid conflict #}
+                        <label for="new_customer_name_field" class="form-label">New Customer Name</label> {# Corrected for to match id #}
+                        <input type="text" class="form-control" id="new_customer_name_field" name="new_customer_name_field" placeholder="Enter customer name" value="{{ form_data.new_customer_name_text or '' }}">
                     </div>
                      <div class="col-md-4"> {# This will wrap due to previous 3 cols #}
                         <label for="payment_method" class="form-label">Payment Method <span class="text-danger">*</span></label>
@@ -63,27 +63,34 @@
 
                 <hr>
                 <h4>Products</h4>
+
+                <!-- Product Category Filter Row -->
                 <div class="row product-category-filter">
-                    <div class="col-md-5">
-                        <label for="productItemCategoryFilter" class="form-label">Filter Products by Category</label> {# Renamed ID for clarity #}
+                    <div class="col-md-5"> {# Or col-md-6, col-md-12, adjust as needed #}
+                        <label for="productItemCategoryFilter" class="form-label">Filter Products by Category</label>
                         <select class="form-select" id="productItemCategoryFilter">
                             <option value="">All Available Categories</option>
-                            {% for category in all_categories %} {# Passed from add_transaction route #}
+                            {# Populate this from the all_categories variable passed from Flask #}
+                            {% for category in all_categories %}
                                 <option value="{{ category.id }}">{{ category.name }}</option> {# VALUE IS CATEGORY ID #}
                             {% endfor %}
                         </select>
                     </div>
                 </div>
+                <!-- End Product Category Filter Row -->
+
 
                 <div id="productItemsContainer">
+                    <!-- Initial product row -->
                     <div class="product-row row gx-2 align-items-center">
                         <div class="col-md-5">
-                            <select class="form-select product-select" name="product_id[]">
+                            <select class="form-select product-select" name="product_id[]" required> {# Added required #}
                                 <option value="">Select Product</option>
+                                <!-- Options populated by JS -->
                             </select>
                         </div>
                         <div class="col-md-2">
-                            <input type="number" class="form-control quantity-input" name="quantity[]" placeholder="Qty" min="1" value="1">
+                            <input type="number" class="form-control quantity-input" name="quantity[]" placeholder="Qty" min="1" value="1" required> {# Added required #}
                         </div>
                         <div class="col-md-3">
                             <input type="text" class="form-control item-total-display" readonly placeholder="Item Total">
@@ -96,7 +103,8 @@
                 <button type="button" class="btn btn-outline-success btn-sm mt-2" id="addProductRowBtn"><i class="bi bi-plus"></i> Add Another Product</button>
                 
                 <hr>
-                <div class="row mb-3 align-items-end">
+                {# Totals, Notes, Amount Paid - (no changes here, keep as is) ... #}
+                 <div class="row mb-3 align-items-end">
                      <div class="col-md-6">
                         <label for="notes" class="form-label">Notes / Remarks</label>
                         <textarea class="form-control" id="notes" name="notes" rows="2">{{ form_data.notes_text or '' }}</textarea>
@@ -106,11 +114,12 @@
                         <h4 class="mb-1">Total Amount: <span id="grandTotalDisplay" class="text-primary">{{ format_ugx(0) }}</span></h4>
                         <div class="mt-2">
                              <label for="amountPaidInput" class="form-label d-block text-start">Amount Paid <span class="text-danger">*</span>:</label>
-                             <input type="number" class="form-control form-control-lg amount-paid-input" id="amountPaidInput" name="amount_paid" placeholder="0" min="0" step="any" required>
+                             <input type="number" class="form-control form-control-lg" id="amountPaidInput" name="amount_paid" placeholder="0" min="0" step="any" required value="{{ form_data.amount_paid_val or '0' }}">
                         </div>
                         <h5 class="mt-2">Balance Due: <span id="balanceDueDisplay" class="text-danger">{{ format_ugx(0) }}</span></h5>
                     </div>
                 </div>
+
 
                 <div class="mt-4 d-flex justify-content-end">
                     <a href="{{ url_for('transactions') }}" class="btn btn-outline-secondary me-2">Cancel</a>
@@ -124,10 +133,10 @@
 <template id="productRowTemplate">
     <div class="product-row row gx-2 align-items-center">
         <div class="col-md-5">
-            <select class="form-select product-select" name="product_id[]"><option value="">Select Product</option></select>
+            <select class="form-select product-select" name="product_id[]" required><option value="">Select Product</option></select>
         </div>
         <div class="col-md-2">
-            <input type="number" class="form-control quantity-input" name="quantity[]" placeholder="Qty" min="1" value="1">
+            <input type="number" class="form-control quantity-input" name="quantity[]" placeholder="Qty" min="1" value="1" required>
         </div>
         <div class="col-md-3">
             <input type="text" class="form-control item-total-display" readonly placeholder="Item Total">
@@ -137,142 +146,301 @@
         </div>
     </div>
 </template>
-{% endblock %}
 
+</div>
+{% endblock %}
 {% block scripts %}
 <script>
-// --- (JavaScript from previous add_transaction.html, but ensure allAvailableProducts uses product.category_id for filtering) ---
-// Key change in populateProductSelect:
-// const filteredProducts = selectedCategoryIdValue // RENAMED for clarity
-//     ? allAvailableProducts.filter(p => p.category_id == selectedCategoryIdValue) // COMPARE IDs
-//     : allAvailableProducts;
-// And productItemCategoryFilterEl event listener will use this.value (which is category.id)
 document.addEventListener('DOMContentLoaded', function() {
+    // --- DOM Elements ---
     const productItemsContainer = document.getElementById('productItemsContainer');
     const addProductRowBtn = document.getElementById('addProductRowBtn');
     const productRowTemplateEl = document.getElementById('productRowTemplate');
-    
     const productsDataStoreElement = document.getElementById('productsDataStore');
-    let productsJsonString = productsDataStoreElement ? productsDataStoreElement.dataset.products : '[]';
-    let allAvailableProducts = []; // This will now have items with category_id and category_name
-    try {
-        allAvailableProducts = JSON.parse(productsJsonString);
-        if (!Array.isArray(allAvailableProducts)) allAvailableProducts = [];
-    } catch (e) { allAvailableProducts = []; console.error("Error parsing products JSON", e); }
-
+    
     const subTotalDisplayEl = document.getElementById('subTotalDisplay');
     const grandTotalDisplayEl = document.getElementById('grandTotalDisplay');
     const amountPaidInputEl = document.getElementById('amountPaidInput');
     const balanceDueDisplayEl = document.getElementById('balanceDueDisplay');
-    const productItemCategoryFilterEl = document.getElementById('productItemCategoryFilter'); // Correct ID
+    
+    const productItemCategoryFilterEl = document.getElementById('productItemCategoryFilter');
     
     const customerSelectionTypeEl = document.getElementById('customer_selection_type');
     const existingCustomerSectionEl = document.getElementById('existingCustomerSection');
     const newCustomerNameSectionEl = document.getElementById('newCustomerNameSection');
     const customerIdSelectEl = document.getElementById('customer_id');
-    const newCustomerNameInputEl = document.getElementById('new_customer_name_field'); // Correct ID
+    const newCustomerNameInputEl = document.getElementById('new_customer_name_field');
+    const addTransactionFormEl = document.getElementById('addTransactionForm');
 
-    const formatUgxJS = (value) => { /* ... same as before ... */ };
-    if(customerSelectionTypeEl) customerSelectionTypeEl.addEventListener('change', toggleCustomerInput);
-    toggleCustomerInput(); // Initial call
+    // --- Data Store ---
+    let allAvailableProducts = [];
+    if (productsDataStoreElement && productsDataStoreElement.dataset.products) {
+        try {
+            const parsedProducts = JSON.parse(productsDataStoreElement.dataset.products);
+            if (Array.isArray(parsedProducts)) {
+                allAvailableProducts = parsedProducts;
+            } else {
+                console.error("Parsed products data is not an array:", parsedProducts);
+            }
+        } catch (e) {
+            console.error("Error parsing products JSON for transaction form:", e);
+        }
+    }
+    // console.log("Initial allAvailableProducts:", allAvailableProducts);
 
+    // --- Utility Functions ---
+    const formatUgxJS = (value) => {
+        const numValue = parseFloat(value);
+        if (isNaN(numValue)) return 'UGX 0';
+        return `UGX ${numValue.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+    };
+
+    // --- Customer Input Logic ---
     function toggleCustomerInput() {
+        if (!customerSelectionTypeEl || !existingCustomerSectionEl || !newCustomerNameSectionEl || !customerIdSelectEl || !newCustomerNameInputEl) {
+            console.warn("One or more customer input elements are missing from the DOM.");
+            return;
+        }
         const selectionType = customerSelectionTypeEl.value;
-        newCustomerNameInputEl.name = ""; // Default to no name
-        customerIdSelectEl.name = "customer_id"; // Default to this name
+        
+        // Defaults for name attributes
+        newCustomerNameInputEl.name = ""; 
+        customerIdSelectEl.name = "customer_id"; 
 
-        if (selectionType === 'existing') {
-            existingCustomerSectionEl.style.display = 'block';
-            newCustomerNameSectionEl.style.display = 'none';
-            newCustomerNameInputEl.value = '';
-        } else if (selectionType === 'new') {
-            existingCustomerSectionEl.style.display = 'none';
-            newCustomerNameSectionEl.style.display = 'block';
-            customerIdSelectEl.value = '';
-            customerIdSelectEl.name = ""; // No submission for existing if new is chosen
-            newCustomerNameInputEl.name = "new_customer_name"; // Submit this instead
+        existingCustomerSectionEl.style.display = (selectionType === 'existing') ? 'block' : 'none';
+        newCustomerNameSectionEl.style.display = (selectionType === 'new') ? 'block' : 'none';
+
+        if (selectionType === 'new') {
+            customerIdSelectEl.value = ''; // Clear existing selection
+            customerIdSelectEl.name = "";  // Don't submit existing customer if new is chosen
+            newCustomerNameInputEl.name = "new_customer_name_field"; // Set name for new customer input
+        } else if (selectionType === 'existing') {
+             newCustomerNameInputEl.value = ''; // Clear new customer name
         } else { // Walk-in
-            existingCustomerSectionEl.style.display = 'none';
-            newCustomerNameSectionEl.style.display = 'none';
             customerIdSelectEl.value = '';
             newCustomerNameInputEl.value = '';
         }
     }
 
-
-    function populateProductSelect(selectElement, selectedCategoryId = "") { // Now takes category ID
-        const currentVal = selectElement.value;
+    // --- Product Row & Totals Logic ---
+    function populateProductSelect(selectElement, selectedCategoryIdValue = "") {
+        if (!selectElement) {
+            // console.warn("populateProductSelect called with null/undefined selectElement");
+            return;
+        }
+        const currentSelectedProductId = selectElement.value; 
         selectElement.innerHTML = '<option value="">Select Product</option>';
-        // Filter products by category_id
-        const filtered = selectedCategoryId && selectedCategoryId !== ""
-            ? allAvailableProducts.filter(p => p.category_id == selectedCategoryId) // Compare IDs
+        
+        const filteredProducts = selectedCategoryIdValue && selectedCategoryIdValue !== ""
+            ? allAvailableProducts.filter(p => String(p.category_id) === String(selectedCategoryIdValue))
             : allAvailableProducts;
 
-        filtered.forEach(p => { /* ... same option creation as before ... */ 
+        filteredProducts.forEach(p => {
             const opt = document.createElement('option');
             opt.value = p.id;
-            opt.textContent = `${p.name} (Stock: ${p.stock}) - ${formatUgxJS(p.price)}`;
-            opt.dataset.price = p.price;
-            opt.dataset.stock = p.stock;
-            opt.dataset.name = p.name;
+            const uomText = p.unit_of_measure ? ` (${p.unit_of_measure})` : ''; // Added space for better readability
+            opt.textContent = `${p.name}${uomText} (Stock: ${p.stock || 0}) - ${formatUgxJS(p.price || 0)}`;
+            opt.dataset.price = p.price || 0;
+            opt.dataset.stock = p.stock || 0;
+            opt.dataset.name = p.name || 'Unknown Product';
             selectElement.appendChild(opt);
         });
-        if (Array.from(selectElement.options).some(opt => opt.value === currentVal)) {
-            selectElement.value = currentVal;
+
+        if (Array.from(selectElement.options).some(opt => opt.value === currentSelectedProductId)) {
+            selectElement.value = currentSelectedProductId;
+        } else {
+            selectElement.value = ""; 
         }
-    }
-    
-    function calculateAllTotals() { /* ... same as before, using grandTotalDisplayEl ... */ }
-    function addRowEventListeners(row) { /* ... same as before ... */ }
-
-    if (addProductRowBtn) {
-        addProductRowBtn.addEventListener('click', function() {
-            // ... (same as before, but newProductSelect will be populated by populateProductSelect
-            //      which now understands category IDs if productItemCategoryFilterEl.value provides one)
-            if (!productRowTemplateEl) return;
-            const templateContent = productRowTemplateEl.content.cloneNode(true);
-            const newRowDiv = templateContent.querySelector('.product-row');
-            if (!newRowDiv) return;
-            
-            const newProductSelect = newRowDiv.querySelector('.product-select');
-            if (newProductSelect) populateProductSelect(newProductSelect, productItemCategoryFilterEl ? productItemCategoryFilterEl.value : "");
-
-            productItemsContainer.appendChild(newRowDiv);
-            const appendedRow = productItemsContainer.lastElementChild;
-            if (appendedRow && appendedRow.matches('.product-row')) {
-                addRowEventListeners(appendedRow);
-            }
-            calculateAllTotals();
-        });
+        updateRowTotals(selectElement.closest('.product-row')); 
     }
 
-    if (productItemCategoryFilterEl) { // Filter for product items
-        productItemCategoryFilterEl.addEventListener('change', function() {
-            const selectedCategoryId = this.value; // This is category_id
-            productItemsContainer.querySelectorAll('.product-row .product-select').forEach(selectEl => {
-                populateProductSelect(selectEl, selectedCategoryId);
-                // updateRowTotals(selectEl.closest('.product-row')); // Call after populating
-            });
-            calculateAllTotals(); // Recalculate all totals after repopulating dropdowns
-        });
-    }
-    
-    if(amountPaidInputEl) amountPaidInputEl.addEventListener('input', calculateAllTotals);
-
-    const initialRow = productItemsContainer.querySelector('.product-row');
-    if (initialRow) {
-        const initialProductSelect = initialRow.querySelector('.product-select');
-        if (initialProductSelect) {
-            populateProductSelect(initialProductSelect, productItemCategoryFilterEl ? productItemCategoryFilterEl.value : ""); 
-            addRowEventListeners(initialRow);
-            const initialRemoveBtn = initialRow.querySelector('.remove-product-row-btn');
-            if (initialRemoveBtn) initialRemoveBtn.style.display = 'none';
-        }
+    function updateRowTotals(row) {
+        if (!row) return;
+        const productSelect = row.querySelector('.product-select');
+        const quantityInput = row.querySelector('.quantity-input');
+        const itemTotalDisplay = row.querySelector('.item-total-display');
+        
+        const selectedOption = productSelect ? productSelect.options[productSelect.selectedIndex] : null;
+        const price = selectedOption && selectedOption.dataset.price ? parseFloat(selectedOption.dataset.price) : 0;
+        const quantity = quantityInput && quantityInput.value ? parseInt(quantityInput.value) : 0;
+        
+        const itemTotal = (price && quantity > 0) ? price * quantity : 0;
+        if (itemTotalDisplay) itemTotalDisplay.value = formatUgxJS(itemTotal);
+        
         calculateAllTotals();
     }
 
-    const addTransactionFormEl = document.getElementById('addTransactionForm');
-    if (addTransactionFormEl) { /* ... same submit listener as before ... */ }
+    function calculateAllTotals() {
+        let subtotal = 0;
+        productItemsContainer.querySelectorAll('.product-row').forEach(row => {
+            const productSelect = row.querySelector('.product-select');
+            const quantityInput = row.querySelector('.quantity-input');
+            if (productSelect && quantityInput && productSelect.value) { // Check if product is selected
+                const selectedOption = productSelect.options[productSelect.selectedIndex];
+                const price = parseFloat(selectedOption.dataset.price) || 0;
+                const quantity = parseInt(quantityInput.value) || 0;
+                if (quantity > 0) { // Only add to subtotal if quantity is valid
+                    subtotal += price * quantity;
+                }
+            }
+        });
+
+        const grandTotal = subtotal;
+        const amountPaid = parseFloat(amountPaidInputEl ? amountPaidInputEl.value : 0) || 0;
+        const balanceDue = grandTotal - amountPaid;
+
+        if(subTotalDisplayEl) subTotalDisplayEl.textContent = formatUgxJS(subtotal);
+        if(grandTotalDisplayEl) grandTotalDisplayEl.textContent = formatUgxJS(grandTotal);
+        if(balanceDueDisplayEl) balanceDueDisplayEl.textContent = formatUgxJS(balanceDue);
+    }
+
+    function addRowEventListeners(row) {
+        if (!row) return;
+        const productSelect = row.querySelector('.product-select');
+        const quantityInput = row.querySelector('.quantity-input');
+        const removeBtn = row.querySelector('.remove-product-row-btn');
+
+        if(productSelect) productSelect.addEventListener('change', () => updateRowTotals(row));
+        if(quantityInput) quantityInput.addEventListener('input', () => updateRowTotals(row));
+        
+        if(removeBtn) {
+            removeBtn.addEventListener('click', function() {
+                row.remove();
+                calculateAllTotals();
+                const remainingRows = productItemsContainer.querySelectorAll('.product-row');
+                if (remainingRows.length === 1) {
+                    const lastRemoveBtn = remainingRows[0].querySelector('.remove-product-row-btn');
+                    if (lastRemoveBtn) lastRemoveBtn.style.display = 'none';
+                }
+            });
+        }
+    }
+
+    // --- Event Handlers & Initializations ---
+
+    // Customer Type Toggle Initialization
+    if (customerSelectionTypeEl) {
+        customerSelectionTypeEl.addEventListener('change', toggleCustomerInput);
+        toggleCustomerInput(); // Call on load to set initial state
+    }
+
+    // "Add Another Product" Button
+    if (addProductRowBtn) {
+        addProductRowBtn.addEventListener('click', function() {
+            if (!productRowTemplateEl || !productRowTemplateEl.content) { 
+                console.error("Product row template or its content not found!"); return; 
+            }
+            const templateContent = productRowTemplateEl.content.cloneNode(true);
+            const newRowDiv = templateContent.querySelector('.product-row');
+            if (!newRowDiv) { console.error("Cloned row div not found in template content!"); return;}
+            
+            const newProductSelect = newRowDiv.querySelector('.product-select');
+            if (newProductSelect) {
+                populateProductSelect(newProductSelect, productItemCategoryFilterEl ? productItemCategoryFilterEl.value : "");
+            }
+            productItemsContainer.appendChild(newRowDiv);
+            
+            const allRows = productItemsContainer.querySelectorAll('.product-row');
+            allRows.forEach((r) => {
+                const btn = r.querySelector('.remove-product-row-btn');
+                if (btn) btn.style.display = allRows.length > 1 ? 'inline-block' : 'none';
+            });
+
+            const appendedRow = productItemsContainer.lastElementChild;
+            if (appendedRow && appendedRow.matches && appendedRow.matches('.product-row')) {
+                addRowEventListeners(appendedRow);
+            }
+            calculateAllTotals(); 
+        });
+    }
+
+    // Product Item Category Filter
+    if (productItemCategoryFilterEl) {
+        productItemCategoryFilterEl.addEventListener('change', function() {
+            const selectedCategoryIdValue = this.value;
+            productItemsContainer.querySelectorAll('.product-row').forEach(row => {
+                const selectEl = row.querySelector('.product-select');
+                if (selectEl) {
+                    populateProductSelect(selectEl, selectedCategoryIdValue);
+                }
+            });
+            // calculateAllTotals is called by updateRowTotals which is called by populateProductSelect
+        });
+    }
+    
+    // Amount Paid Input
+    if(amountPaidInputEl) {
+        amountPaidInputEl.addEventListener('input', calculateAllTotals);
+    }
+
+    // Initialize Existing Product Rows (e.g., the first one)
+    const initialRows = productItemsContainer.querySelectorAll('.product-row');
+    initialRows.forEach((row, index) => {
+        const productSelect = row.querySelector('.product-select');
+        if (productSelect) {
+            populateProductSelect(productSelect, productItemCategoryFilterEl ? productItemCategoryFilterEl.value : ""); 
+        }
+        addRowEventListeners(row);
+        const removeBtn = row.querySelector('.remove-product-row-btn');
+        if (removeBtn) {
+            removeBtn.style.display = (initialRows.length > 1 || index > 0) ? 'inline-block' : 'none';
+        }
+    });
+    if (initialRows.length > 0) { // Ensure totals are calculated on page load if rows exist
+        calculateAllTotals();
+    }
+
+    // Form Submission Handler
+    if (addTransactionFormEl) {
+        addTransactionFormEl.addEventListener('submit', function(event) {
+            // Basic validation: ensure at least one product is selected IF there are product rows
+            const productSelects = Array.from(productItemsContainer.querySelectorAll('.product-select'));
+            let hasSelectedProduct = productSelects.some(select => select.value && select.value !== "");
+
+            if (productSelects.length > 0 && !hasSelectedProduct) {
+                event.preventDefault(); 
+                alert('Please select at least one product for the transaction.');
+                return;
+            }
+            
+            let allQuantitiesValid = true;
+            let stockErrorMessage = "";
+            productItemsContainer.querySelectorAll('.product-row').forEach(row => {
+                const productSelect = row.querySelector('.product-select');
+                const quantityInput = row.querySelector('.quantity-input');
+                if(quantityInput) quantityInput.classList.remove('is-invalid'); 
+
+                if (productSelect && productSelect.value && productSelect.value !== "") {
+                    const quantity = parseInt(quantityInput.value);
+                    const selectedOption = productSelect.options[productSelect.selectedIndex];
+                    const stock = parseInt(selectedOption.dataset.stock);
+                    const productName = selectedOption.dataset.name;
+
+                    if (isNaN(quantity) || quantity <= 0) {
+                        allQuantitiesValid = false;
+                        if(quantityInput) quantityInput.classList.add('is-invalid');
+                        if (!stockErrorMessage) stockErrorMessage = "Please enter a valid quantity (greater than 0) for selected products.";
+                    } else if (quantity > stock) {
+                        allQuantitiesValid = false;
+                        if(quantityInput) quantityInput.classList.add('is-invalid');
+                        stockErrorMessage += `\nQuantity for "${productName}" (${quantity}) exceeds available stock (${stock}).`;
+                    }
+                }
+            });
+
+            if (!allQuantitiesValid) {
+                event.preventDefault();
+                alert(stockErrorMessage.trim() || 'Please correct the quantities for the selected products.');
+                return;
+            }
+
+            const submitBtn = document.getElementById('saveTransactionBtn');
+            if (submitBtn) {
+                submitBtn.disabled = true;
+                submitBtn.innerHTML = `<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Recording...`;
+            }
+        });
+    }
 });
 </script>
 {% endblock %}

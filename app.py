@@ -743,59 +743,55 @@ def add_transaction():
         flash("Database connection failed.", "danger")
         return redirect(url_for('transactions'))
 
-    form_data_on_error = {} # To repopulate form on POST error
+    form_data_on_error = {} 
 
     if request.method == 'POST':
-        # This section retains the detailed POST logic from our previous discussions
-        # for creating the transaction, items, handling customer creation, and stock updates.
-        # It's extensive, so I'll use a placeholder here, assuming you have that full logic.
-        # Ensure it handles errors by setting flash messages and re-rendering the template
-        # by falling through to the GET logic below, passing form_data_on_error.
         try:
-            # --- Start of POST Logic (from previous full example) ---
             customer_selection_type = request.form.get('customer_selection_type')
             customer_id_form = request.form.get('customer_id')
-            new_customer_name = request.form.get('new_customer_name_field', '').strip() # Match name in HTML
+            # Ensure you use the correct name attribute from your HTML for new customer name
+            new_customer_name = request.form.get('new_customer_name_field', '').strip() 
             payment_method = request.form.get('payment_method')
             notes = request.form.get('notes')
             amount_paid_str = request.form.get('amount_paid')
 
             product_ids = request.form.getlist('product_id[]')
             quantities = request.form.getlist('quantity[]')
-
-            # Store form data to pass back in case of error during POST processing
+            
+            # For repopulating form on error
             form_data_on_error = {
+                'customer_selection_type': customer_selection_type,
                 'selected_customer_id': customer_id_form,
-                'new_customer_name_text': new_customer_name, # Use 'new_customer_name_field' if that's the HTML name
+                'new_customer_name_text': new_customer_name,
                 'selected_payment_method': payment_method,
                 'notes_text': notes,
                 'amount_paid_val': amount_paid_str,
-                # Storing selected products/quantities for repopulation is complex,
-                # usually users re-select them after an error.
+                # Repopulating dynamic product rows is complex, typically user re-selects
             }
-            
+
             final_customer_id = None
             if customer_selection_type == 'existing' and customer_id_form:
-                final_customer_id = int(customer_id_form)
+                try:
+                    final_customer_id = int(customer_id_form)
+                except ValueError:
+                    flash("Invalid existing customer selected.", "danger")
+                    raise ValueError("Invalid customer ID")
             elif customer_selection_type == 'new' and new_customer_name:
                 existing_customer_res = supabase.table('customers').select('id').eq('name', new_customer_name).maybe_single().execute()
                 if existing_customer_res.data:
                     final_customer_id = existing_customer_res.data['id']
-                    flash(f"Using existing customer '{new_customer_name}'.", "info")
+                    flash(f"Using existing customer record for '{new_customer_name}'.", "info")
                 else:
                     new_cust_payload = {'name': new_customer_name} 
-                    # Add phone/email here if you collect them in the form for new customers
-                    # new_cust_payload['phone_number'] = request.form.get('new_customer_phone') 
                     created_customer_res = supabase.table('customers').insert(new_cust_payload).execute()
-                    if created_customer_res.data:
+                    if created_customer_res.data and len(created_customer_res.data) > 0:
                         final_customer_id = created_customer_res.data[0]['id']
                         flash(f"New customer '{new_customer_name}' created and selected.", "success")
                     else:
-                        flash("Failed to create new customer record.", "danger")
-                        raise ValueError("New customer creation failed.") # Trigger re-render
-            # If 'walk_in' or no specific customer action, final_customer_id remains None
-
-            if not product_ids or not any(pid for pid in product_ids if pid):
+                        flash("Failed to create new customer record. Error: " + str(getattr(created_customer_res, 'error', 'Unknown')), "danger")
+                        raise ValueError("New customer creation failed.")
+            
+            if not product_ids or not any(pid for pid in product_ids if pid and pid.strip()):
                 flash("Please select at least one product.", "danger")
                 raise ValueError("No products selected")
 
@@ -813,25 +809,36 @@ def add_transaction():
             product_stock_updates = []
 
             for i, product_id_str in enumerate(product_ids):
-                if not product_id_str: continue
-                product_id = int(product_id_str)
-                quantity = int(quantities[i])
+                if not product_id_str or not product_id_str.strip(): continue # Skip empty product_id selections
+                
+                try:
+                    product_id = int(product_id_str)
+                    quantity = int(quantities[i]) # Assuming quantities[i] corresponds
+                except (ValueError, IndexError) as e_parse:
+                    flash(f"Invalid product or quantity data submitted. Please check row {i+1}. Error: {e_parse}", "danger")
+                    raise ValueError(f"Invalid data for row {i+1}")
+
 
                 if quantity <= 0:
-                    flash(f"Quantity for product ID {product_id} must be positive.", "danger")
+                    flash(f"Quantity for product ID {product_id} (row {i+1}) must be positive.", "danger")
                     raise ValueError("Invalid quantity")
 
-                product_info_res = supabase.table('products').select('price, stock, name').eq('id', product_id).eq('status', True).maybe_single().execute()
+                # Fetch product details including status
+                product_info_res = supabase.table('products').select('price, stock, name, status').eq('id', product_id).maybe_single().execute()
                 if not product_info_res.data:
-                    flash(f"Active product with ID {product_id} not found or out of stock.", "danger")
-                    raise ValueError("Product not found or OOS")
+                    flash(f"Product with ID {product_id} (row {i+1}) not found.", "danger")
+                    raise ValueError("Product not found")
+                
+                if not product_info_res.data.get('status'): # Checks if status is False or None
+                    flash(f"Product '{product_info_res.data['name']}' (ID {product_id}, row {i+1}) is inactive and cannot be sold.", "danger")
+                    raise ValueError("Inactive product selected")
                 
                 product_price = float(product_info_res.data['price'])
                 current_stock = int(product_info_res.data['stock'])
                 product_name = product_info_res.data['name']
 
                 if quantity > current_stock:
-                    flash(f"Not enough stock for '{product_name}'. Available: {current_stock}, Requested: {quantity}.", "danger")
+                    flash(f"Not enough stock for '{product_name}' (row {i+1}). Available: {current_stock}, Requested: {quantity}.", "danger")
                     raise ValueError("Insufficient stock")
 
                 item_total = product_price * quantity
@@ -858,89 +865,86 @@ def add_transaction():
                 'balance_due': balance_due 
             }
             
+            # --- Database Transaction (Ideally use an RPC for atomicity) ---
+            # For simplicity here, we'll do sequential operations.
+            # In a production system, wrap these in a database transaction or an RPC.
+            
             inserted_txn_res = supabase.table('transactions').insert(main_transaction_payload).execute()
 
             if not inserted_txn_res.data or len(inserted_txn_res.data) == 0:
-                flash("Failed to create main transaction record.", "danger")
-                raise Exception("Transaction insert failed") # More generic exception if specific value error not appropriate
+                flash("Failed to create main transaction record. Error: " + str(getattr(inserted_txn_res, 'error', 'Unknown')), "danger")
+                raise Exception("Transaction insert failed")
 
             new_transaction_id = inserted_txn_res.data[0]['id']
 
             for item in transaction_items_to_insert: item['transaction_id'] = new_transaction_id
             
-            if transaction_items_to_insert: # Only insert if there are items
+            if transaction_items_to_insert:
                 items_insert_res = supabase.table('transaction_items').insert(transaction_items_to_insert).execute()
-                if not items_insert_res.data: # Check if data is empty after insert
-                    flash(f"Transaction #{inserted_txn_res.data[0]['transaction_code']} created, but failed to record items! Review manually.", "danger")
+                if not items_insert_res.data: 
+                     flash(f"Transaction #{inserted_txn_res.data[0]['transaction_code']} created, but failed to record items! Review manually. Error: " + str(getattr(items_insert_res, 'error', 'Unknown')), "danger")
+                     # Potentially roll back main transaction here if possible, or log for manual correction
             
-            # For atomicity, an RPC is highly recommended for transaction + items + stock updates.
             for stock_update in product_stock_updates:
                 stock_update_response = supabase.table('products').update({'stock': stock_update['new_stock']}).eq('id', stock_update['id']).execute()
                 if not stock_update_response.data:
-                     flash(f"Warning: Stock for product ID {stock_update['id']} might not have updated correctly.", "warning")
-
+                     flash(f"Warning: Stock for product ID {stock_update['id']} might not have updated correctly. Error: " + str(getattr(stock_update_response, 'error', 'Unknown')), "warning")
 
             flash(f"Transaction #{inserted_txn_res.data[0]['transaction_code']} created successfully!", "success")
             return redirect(url_for('transactions'))
 
-        except ValueError as ve: # Catch our specific validation ValueErrors
+        except ValueError as ve: 
             # Flash message should have been set before raising ValueError
-            # The request will fall through to the GET rendering part below
-            # which re-fetches data for the form.
-            # Pass form_data_on_error to the template context when re-rendering.
-            request.form_data_on_error = form_data_on_error # Attach to request to pass it down
+            # Fall through to re-render the form with form_data_on_error
+            request.form_data_on_error = form_data_on_error 
         except Exception as e:
             print(f"Error adding transaction: {type(e).__name__} - {e}")
             import traceback
             traceback.print_exc()
             flash("An unexpected error occurred while adding the transaction. Please check details and try again.", "danger")
-            request.form_data_on_error = form_data_on_error # Attach to request
+            request.form_data_on_error = form_data_on_error
 
     # --- GET request logic OR if POST had an error and fell through ---
-    # Retrieve form_data from request if it was set by POST error handling
     current_form_data = getattr(request, 'form_data_on_error', {})
 
     try:
         customers_resp = supabase.table('customers').select('id, name, phone_number').order('name').execute()
         
-        # Fetch products with their category object (which includes id and name) for JS data
         products_resp = supabase.table('products') \
-            .select('id, name, price, stock, category_id, category:categories(id, name)') \
+            .select('id, name, price, stock, unit_of_measure, category_id, category:categories(id, name)') \
             .eq('status', True) \
             .gt('stock', 0) \
             .order('name') \
             .execute()
         
-        # Fetch all distinct categories for the category filter dropdown
         all_categories_resp = supabase.table('categories').select('id, name').order('name').execute()
         
         products_for_js = []
         if products_resp.data:
             for p in products_resp.data:
-                # 'category' here will be the joined object {id: X, name: Y} or None
                 cat_info = p.get('category') 
                 products_for_js.append({
                     'id': p['id'],
                     'name': p['name'],
                     'price': p['price'],
                     'stock': p.get('stock', 0),
-                    'category_id': cat_info['id'] if cat_info else p.get('category_id'), # Use direct or from joined
-                    # category_name is not strictly needed if JS filters by ID, but good for debugging
-                    # 'category_name': cat_info['name'] if cat_info else 'Uncategorized' 
+                    'unit_of_measure': p.get('unit_of_measure'),
+                    'category_id': cat_info['id'] if cat_info else p.get('category_id'), 
+                    'category_name': cat_info['name'] if cat_info else 'Uncategorized' 
                 })
 
     except Exception as e_fetch:
         print(f"Error fetching data for add transaction form: {type(e_fetch).__name__} - {e_fetch}")
         flash("Could not load essential data for the transaction form. Please try again later.", "warning")
-        customers_resp = {'data': []} # Default to empty list on error
+        customers_resp = {'data': []} 
         products_for_js = []
         all_categories_resp = {'data': []}
 
     return render_template('add_transaction.html', 
                          customers=customers_resp.data or [], 
-                         products_json_for_js=products_for_js, # This is used by JS data attribute
-                         all_categories=all_categories_resp.data or [], # For the category filter dropdown
-                         form_data=current_form_data) # Pass form data for repopulation
+                         products_json_for_js=products_for_js, 
+                         all_categories=all_categories_resp.data or [], 
+                         form_data=current_form_data)
 
 @app.route('/employees')
 @login_required
