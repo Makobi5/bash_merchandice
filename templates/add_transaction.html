@@ -9,12 +9,14 @@
     #grandTotalDisplay, #amountPaidInput, #balanceDueDisplay { font-size: 1.2em; font-weight: bold; }
     .product-category-filter { margin-bottom: 1rem; } /* Style for the filter row */
     .item-total-display, #amountPaidInput { text-align: right; } /* Ensure amount paid is right-aligned if desired */
+    .is-invalid { border-color: #dc3545 !important; } /* Basic invalid style */
 </style>
 {% endblock %}
 
 {% block content %}
 <div class="container mt-4">
     {# Hidden div to store product data as JSON string #}
+    {# Ensure products_json_for_js is correctly passed from Flask and is a list of product objects #}
     <div id="productsDataStore" data-products="{{ products_json_for_js | tojson | safe if products_json_for_js else '[]' }}" style="display: none;"></div>
 
     <div class="card">
@@ -23,11 +25,11 @@
         </div>
         <div class="card-body">
             <form method="POST" id="addTransactionForm">
-                {# Customer & Payment Method - (no changes here, keep as is) ... #}
+                {# Customer & Payment Method Section #}
                 <div class="row mb-3">
                     <div class="col-md-4">
                         <label for="customer_selection_type" class="form-label">Customer Type</label>
-                        <select class="form-select" id="customer_selection_type" name="customer_selection_type"> {# Added name attribute #}
+                        <select class="form-select" id="customer_selection_type" name="customer_selection_type">
                             <option value="walk_in" {% if (form_data and form_data.customer_selection_type == 'walk_in') or not form_data %}selected{% endif %}>Walk-in Customer</option>
                             <option value="existing" {% if form_data and form_data.customer_selection_type == 'existing' %}selected{% endif %}>Select Existing Customer</option>
                             <option value="new" {% if form_data and form_data.customer_selection_type == 'new' %}selected{% endif %}>Enter New Customer Name</option>
@@ -45,10 +47,10 @@
                         </select>
                     </div>
                     <div class="col-md-4" id="newCustomerNameSection" style="display:none;">
-                        <label for="new_customer_name_field" class="form-label">New Customer Name</label> {# Corrected for to match id #}
+                        <label for="new_customer_name_field" class="form-label">New Customer Name</label>
                         <input type="text" class="form-control" id="new_customer_name_field" name="new_customer_name_field" placeholder="Enter customer name" value="{{ form_data.new_customer_name_text or '' }}">
                     </div>
-                     <div class="col-md-4"> {# This will wrap due to previous 3 cols #}
+                     <div class="col-md-4"> {# This will wrap due to previous 3 cols or adjust grid #}
                         <label for="payment_method" class="form-label">Payment Method <span class="text-danger">*</span></label>
                         <select class="form-select" id="payment_method" name="payment_method" required>
                             {% set p_methods = ['Cash', 'Mobile Money', 'Card', 'Bank Transfer', 'Other'] %}
@@ -66,31 +68,30 @@
 
                 <!-- Product Category Filter Row -->
                 <div class="row product-category-filter">
-                    <div class="col-md-5"> {# Or col-md-6, col-md-12, adjust as needed #}
+                    <div class="col-md-5">
                         <label for="productItemCategoryFilter" class="form-label">Filter Products by Category</label>
                         <select class="form-select" id="productItemCategoryFilter">
                             <option value="">All Available Categories</option>
                             {# Populate this from the all_categories variable passed from Flask #}
                             {% for category in all_categories %}
-                                <option value="{{ category.id }}">{{ category.name }}</option> {# VALUE IS CATEGORY ID #}
+                                <option value="{{ category.id }}">{{ category.name }}</option>
                             {% endfor %}
                         </select>
                     </div>
                 </div>
                 <!-- End Product Category Filter Row -->
 
-
                 <div id="productItemsContainer">
-                    <!-- Initial product row -->
+                    <!-- Initial product row (populated by JS) -->
                     <div class="product-row row gx-2 align-items-center">
                         <div class="col-md-5">
-                            <select class="form-select product-select" name="product_id[]" required> {# Added required #}
+                            <select class="form-select product-select" name="product_id[]" required>
                                 <option value="">Select Product</option>
                                 <!-- Options populated by JS -->
                             </select>
                         </div>
                         <div class="col-md-2">
-                            <input type="number" class="form-control quantity-input" name="quantity[]" placeholder="Qty" min="1" value="1" required> {# Added required #}
+                            <input type="number" class="form-control quantity-input" name="quantity[]" placeholder="Qty" min="1" value="1" required>
                         </div>
                         <div class="col-md-3">
                             <input type="text" class="form-control item-total-display" readonly placeholder="Item Total">
@@ -103,7 +104,7 @@
                 <button type="button" class="btn btn-outline-success btn-sm mt-2" id="addProductRowBtn"><i class="bi bi-plus"></i> Add Another Product</button>
                 
                 <hr>
-                {# Totals, Notes, Amount Paid - (no changes here, keep as is) ... #}
+                {# Totals, Notes, Amount Paid Section #}
                  <div class="row mb-3 align-items-end">
                      <div class="col-md-6">
                         <label for="notes" class="form-label">Notes / Remarks</label>
@@ -120,7 +121,6 @@
                     </div>
                 </div>
 
-
                 <div class="mt-4 d-flex justify-content-end">
                     <a href="{{ url_for('transactions') }}" class="btn btn-outline-secondary me-2">Cancel</a>
                     <button type="submit" class="btn btn-primary btn-lg" id="saveTransactionBtn">Record Transaction</button>
@@ -130,6 +130,7 @@
     </div>
 </div>
 
+{# Template for new product rows #}
 <template id="productRowTemplate">
     <div class="product-row row gx-2 align-items-center">
         <div class="col-md-5">
@@ -149,10 +150,14 @@
 
 </div>
 {% endblock %}
+
 {% block scripts %}
 <script>
+    console.log("--- ADD TRANSACTION PAGE SCRIPT BLOCK LOADED ---"); 
+
 document.addEventListener('DOMContentLoaded', function() {
-    // --- DOM Elements ---
+    console.log("--- DOMContentLoaded event fired ---");
+    // ... (const declarations for DOM elements are here, inside DOMContentLoaded) ...
     const productItemsContainer = document.getElementById('productItemsContainer');
     const addProductRowBtn = document.getElementById('addProductRowBtn');
     const productRowTemplateEl = document.getElementById('productRowTemplate');
@@ -174,21 +179,82 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // --- Data Store ---
     let allAvailableProducts = [];
-    if (productsDataStoreElement && productsDataStoreElement.dataset.products) {
-        try {
-            const parsedProducts = JSON.parse(productsDataStoreElement.dataset.products);
-            if (Array.isArray(parsedProducts)) {
-                allAvailableProducts = parsedProducts;
-            } else {
-                console.error("Parsed products data is not an array:", parsedProducts);
-            }
-        } catch (e) {
-            console.error("Error parsing products JSON for transaction form:", e);
-        }
-    }
-    // console.log("Initial allAvailableProducts:", allAvailableProducts);
+    console.log("--- JS DEBUG: Product Loading ---");
+    if (productsDataStoreElement) {
+        console.log("'productsDataStore' element FOUND.");
+        let rawDataAttrString = productsDataStoreElement.getAttribute('data-products'); 
+        console.log("1. Raw 'data-products' attribute string from getAttribute():", rawDataAttrString);
 
-    // --- Utility Functions ---
+        if (rawDataAttrString) {
+            let dataToParse = rawDataAttrString.trim(); 
+            console.log("2. String after initial trim():", dataToParse);
+            if (dataToParse.length > 0) {
+                console.log("   Char code of first char:", dataToParse.charCodeAt(0));
+                console.log("   Char code of last char:", dataToParse.charCodeAt(dataToParse.length - 1));
+            }
+
+            // Aggressive cleaning: Find the first '[' and last ']'
+            const firstBracket = dataToParse.indexOf('[');
+            const lastBracket = dataToParse.lastIndexOf(']');
+
+            console.log("DEBUG: indexOf '[':", firstBracket, "lastIndexOf ']':", lastBracket);
+
+            if (firstBracket !== -1 && lastBracket !== -1 && lastBracket > firstBracket) {
+                dataToParse = dataToParse.substring(firstBracket, lastBracket + 1);
+                console.log("3. String after extracting content between first '[' and last ']':", dataToParse);
+            } else {
+                console.warn("3. Could not reliably find '[' and ']' to extract JSON array/object. Will try to parse the trimmed string as is, but it might fail if it contains non-JSON artifacts like outer parentheses. Trimmed string was:", dataToParse);
+                // If we couldn't find brackets, but the string still has outer parens, let's try removing those as a last resort.
+                // This is for the specific "([{...}])" case if indexOf/lastIndexOf somehow missed the brackets.
+                if (dataToParse.startsWith('(') && dataToParse.endsWith(')')) {
+                    let innerContent = dataToParse.substring(1, dataToParse.length - 1).trim();
+                    if ((innerContent.startsWith('[') && innerContent.endsWith(']')) || (innerContent.startsWith('{') && innerContent.endsWith('}'))) {
+                        dataToParse = innerContent;
+                        console.log("3b. Fallback: String after removing simple outer parentheses:", dataToParse);
+                    }
+                }
+            }
+            
+            // Optional: Final trim and check for single quotes if they are now outermost
+            // This is less likely to be needed if the bracket extraction worked.
+            dataToParse = dataToParse.trim(); // Trim again after substring operations
+            if (dataToParse.startsWith("'") && dataToParse.endsWith("'")) {
+                dataToParse = dataToParse.substring(1, dataToParse.length - 1).trim();
+                console.log("4. String after attempting to remove outer single quotes (if any):", dataToParse);
+            }
+            
+            console.log("5. Final string before JSON.parse:", dataToParse);
+
+            if (dataToParse && dataToParse.trim() !== "" && dataToParse.trim() !== "[]") {
+                try {
+                    const parsedProducts = JSON.parse(dataToParse);
+                    console.log("6. Parsed products:", parsedProducts);
+                    if (Array.isArray(parsedProducts)) {
+                        allAvailableProducts = parsedProducts;
+                        console.log("SUCCESS: 'allAvailableProducts' array populated:", allAvailableProducts);
+                    } else {
+                        console.error("ERROR: Parsed data is NOT an array. Data was:", parsedProducts);
+                    }
+                } catch (e) {
+                    console.error("ERROR: Failed to JSON.parse the string. Error:", e);
+                    console.error("String that failed parsing was:", dataToParse);
+                }
+            } else {
+                console.warn("WARNING: Data string is empty or '[]' after cleaning. No products to load.");
+            }
+        } else {
+            console.warn("WARNING: 'data-products' attribute is null or empty. No products to load.");
+        }
+    } else {
+        console.error("CRITICAL ERROR: 'productsDataStore' div element NOT FOUND.");
+    }
+    console.log("Final 'allAvailableProducts' before populating selects:", allAvailableProducts);
+    console.log("--- END JS DEBUG: Product Loading ---");
+
+    // ... (rest of your JavaScript functions: formatUgxJS, toggleCustomerInput, populateProductSelect, etc. ) ...
+    // ... (Make sure they are all defined WITHIN this DOMContentLoaded listener) ...
+
+    // --- Utility Functions (All defined inside DOMContentLoaded) ---
     const formatUgxJS = (value) => {
         const numValue = parseFloat(value);
         if (isNaN(numValue)) return 'UGX 0';
@@ -198,25 +264,20 @@ document.addEventListener('DOMContentLoaded', function() {
     // --- Customer Input Logic ---
     function toggleCustomerInput() {
         if (!customerSelectionTypeEl || !existingCustomerSectionEl || !newCustomerNameSectionEl || !customerIdSelectEl || !newCustomerNameInputEl) {
-            console.warn("One or more customer input elements are missing from the DOM.");
             return;
         }
         const selectionType = customerSelectionTypeEl.value;
-        
-        // Defaults for name attributes
         newCustomerNameInputEl.name = ""; 
         customerIdSelectEl.name = "customer_id"; 
-
         existingCustomerSectionEl.style.display = (selectionType === 'existing') ? 'block' : 'none';
         newCustomerNameSectionEl.style.display = (selectionType === 'new') ? 'block' : 'none';
-
         if (selectionType === 'new') {
-            customerIdSelectEl.value = ''; // Clear existing selection
-            customerIdSelectEl.name = "";  // Don't submit existing customer if new is chosen
-            newCustomerNameInputEl.name = "new_customer_name_field"; // Set name for new customer input
+            customerIdSelectEl.value = ''; 
+            customerIdSelectEl.name = "";  
+            newCustomerNameInputEl.name = "new_customer_name_field"; 
         } else if (selectionType === 'existing') {
-             newCustomerNameInputEl.value = ''; // Clear new customer name
-        } else { // Walk-in
+             newCustomerNameInputEl.value = '';
+        } else { 
             customerIdSelectEl.value = '';
             newCustomerNameInputEl.value = '';
         }
@@ -225,23 +286,29 @@ document.addEventListener('DOMContentLoaded', function() {
     // --- Product Row & Totals Logic ---
     function populateProductSelect(selectElement, selectedCategoryIdValue = "") {
         if (!selectElement) {
-            // console.warn("populateProductSelect called with null/undefined selectElement");
             return;
         }
         const currentSelectedProductId = selectElement.value; 
-        selectElement.innerHTML = '<option value="">Select Product</option>';
-        
+        selectElement.innerHTML = '<option value="">Select Product</option>'; 
         const filteredProducts = selectedCategoryIdValue && selectedCategoryIdValue !== ""
             ? allAvailableProducts.filter(p => String(p.category_id) === String(selectedCategoryIdValue))
             : allAvailableProducts;
 
         filteredProducts.forEach(p => {
+            if (!p.id || !p.name) {
+                console.error("[populateProductSelect] Product is missing ID or Name:", p);
+                return; 
+            }
             const opt = document.createElement('option');
             opt.value = p.id;
-            const uomText = p.unit_of_measure ? ` (${p.unit_of_measure})` : ''; // Added space for better readability
-            opt.textContent = `${p.name}${uomText} (Stock: ${p.stock || 0}) - ${formatUgxJS(p.price || 0)}`;
-            opt.dataset.price = p.price || 0;
-            opt.dataset.stock = p.stock || 0;
+            const uomText = p.unit_of_measure ? ` (${p.unit_of_measure})` : '';
+            const price = parseFloat(p.price) || 0; 
+            const stock = parseInt(p.stock) || 0;   
+            const priceText = isNaN(price) ? 'Price N/A' : formatUgxJS(price);
+            const stockText = isNaN(stock) ? 'Stock N/A' : stock;
+            opt.textContent = `${p.name}${uomText} (Stock: ${stockText}) - ${priceText}`;
+            opt.dataset.price = isNaN(price) ? 0 : price;
+            opt.dataset.stock = isNaN(stock) ? 0 : stock;
             opt.dataset.name = p.name || 'Unknown Product';
             selectElement.appendChild(opt);
         });
@@ -259,36 +326,33 @@ document.addEventListener('DOMContentLoaded', function() {
         const productSelect = row.querySelector('.product-select');
         const quantityInput = row.querySelector('.quantity-input');
         const itemTotalDisplay = row.querySelector('.item-total-display');
-        
         const selectedOption = productSelect ? productSelect.options[productSelect.selectedIndex] : null;
         const price = selectedOption && selectedOption.dataset.price ? parseFloat(selectedOption.dataset.price) : 0;
         const quantity = quantityInput && quantityInput.value ? parseInt(quantityInput.value) : 0;
-        
-        const itemTotal = (price && quantity > 0) ? price * quantity : 0;
+        const itemTotal = (price > 0 && quantity > 0) ? price * quantity : 0;
         if (itemTotalDisplay) itemTotalDisplay.value = formatUgxJS(itemTotal);
-        
         calculateAllTotals();
     }
 
     function calculateAllTotals() {
         let subtotal = 0;
-        productItemsContainer.querySelectorAll('.product-row').forEach(row => {
-            const productSelect = row.querySelector('.product-select');
-            const quantityInput = row.querySelector('.quantity-input');
-            if (productSelect && quantityInput && productSelect.value) { // Check if product is selected
-                const selectedOption = productSelect.options[productSelect.selectedIndex];
-                const price = parseFloat(selectedOption.dataset.price) || 0;
-                const quantity = parseInt(quantityInput.value) || 0;
-                if (quantity > 0) { // Only add to subtotal if quantity is valid
-                    subtotal += price * quantity;
+        if (productItemsContainer) {
+            productItemsContainer.querySelectorAll('.product-row').forEach(row => {
+                const productSelect = row.querySelector('.product-select');
+                const quantityInput = row.querySelector('.quantity-input');
+                if (productSelect && quantityInput && productSelect.value) {
+                    const selectedOption = productSelect.options[productSelect.selectedIndex];
+                    const price = parseFloat(selectedOption.dataset.price) || 0;
+                    const quantity = parseInt(quantityInput.value) || 0;
+                    if (price > 0 && quantity > 0) {
+                        subtotal += price * quantity;
+                    }
                 }
-            }
-        });
-
+            });
+        }
         const grandTotal = subtotal;
         const amountPaid = parseFloat(amountPaidInputEl ? amountPaidInputEl.value : 0) || 0;
         const balanceDue = grandTotal - amountPaid;
-
         if(subTotalDisplayEl) subTotalDisplayEl.textContent = formatUgxJS(subtotal);
         if(grandTotalDisplayEl) grandTotalDisplayEl.textContent = formatUgxJS(grandTotal);
         if(balanceDueDisplayEl) balanceDueDisplayEl.textContent = formatUgxJS(balanceDue);
@@ -299,16 +363,14 @@ document.addEventListener('DOMContentLoaded', function() {
         const productSelect = row.querySelector('.product-select');
         const quantityInput = row.querySelector('.quantity-input');
         const removeBtn = row.querySelector('.remove-product-row-btn');
-
         if(productSelect) productSelect.addEventListener('change', () => updateRowTotals(row));
         if(quantityInput) quantityInput.addEventListener('input', () => updateRowTotals(row));
-        
         if(removeBtn) {
             removeBtn.addEventListener('click', function() {
                 row.remove();
                 calculateAllTotals();
-                const remainingRows = productItemsContainer.querySelectorAll('.product-row');
-                if (remainingRows.length === 1) {
+                const remainingRows = productItemsContainer ? productItemsContainer.querySelectorAll('.product-row') : [];
+                if (remainingRows.length === 1) { 
                     const lastRemoveBtn = remainingRows[0].querySelector('.remove-product-row-btn');
                     if (lastRemoveBtn) lastRemoveBtn.style.display = 'none';
                 }
@@ -317,130 +379,97 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     // --- Event Handlers & Initializations ---
-
-    // Customer Type Toggle Initialization
-    if (customerSelectionTypeEl) {
-        customerSelectionTypeEl.addEventListener('change', toggleCustomerInput);
-        toggleCustomerInput(); // Call on load to set initial state
-    }
-
-    // "Add Another Product" Button
-    if (addProductRowBtn) {
-        addProductRowBtn.addEventListener('click', function() {
-            if (!productRowTemplateEl || !productRowTemplateEl.content) { 
-                console.error("Product row template or its content not found!"); return; 
-            }
+    console.log("--- Initializing Event Handlers & Page Setup ---");
+    if (customerSelectionTypeEl) { customerSelectionTypeEl.addEventListener('change', toggleCustomerInput); toggleCustomerInput(); } 
+    if (addProductRowBtn) { addProductRowBtn.addEventListener('click', function() { 
+            if (!productRowTemplateEl || !productRowTemplateEl.content) { console.error("Product row template or its content not found!"); return; }
             const templateContent = productRowTemplateEl.content.cloneNode(true);
             const newRowDiv = templateContent.querySelector('.product-row');
             if (!newRowDiv) { console.error("Cloned row div not found in template content!"); return;}
-            
             const newProductSelect = newRowDiv.querySelector('.product-select');
             if (newProductSelect) {
                 populateProductSelect(newProductSelect, productItemCategoryFilterEl ? productItemCategoryFilterEl.value : "");
             }
-            productItemsContainer.appendChild(newRowDiv);
-            
-            const allRows = productItemsContainer.querySelectorAll('.product-row');
-            allRows.forEach((r) => {
+            if (productItemsContainer) productItemsContainer.appendChild(newRowDiv);
+            const allRows = productItemsContainer ? productItemsContainer.querySelectorAll('.product-row') : [];
+            allRows.forEach((r) => { 
                 const btn = r.querySelector('.remove-product-row-btn');
                 if (btn) btn.style.display = allRows.length > 1 ? 'inline-block' : 'none';
             });
-
-            const appendedRow = productItemsContainer.lastElementChild;
-            if (appendedRow && appendedRow.matches && appendedRow.matches('.product-row')) {
-                addRowEventListeners(appendedRow);
-            }
+            addRowEventListeners(newRowDiv); 
             calculateAllTotals(); 
-        });
-    }
-
-    // Product Item Category Filter
-    if (productItemCategoryFilterEl) {
-        productItemCategoryFilterEl.addEventListener('change', function() {
+    });}
+    if (productItemCategoryFilterEl) { productItemCategoryFilterEl.addEventListener('change', function() {  
             const selectedCategoryIdValue = this.value;
-            productItemsContainer.querySelectorAll('.product-row').forEach(row => {
-                const selectEl = row.querySelector('.product-select');
-                if (selectEl) {
-                    populateProductSelect(selectEl, selectedCategoryIdValue);
-                }
-            });
-            // calculateAllTotals is called by updateRowTotals which is called by populateProductSelect
-        });
-    }
-    
-    // Amount Paid Input
-    if(amountPaidInputEl) {
-        amountPaidInputEl.addEventListener('input', calculateAllTotals);
-    }
-
-    // Initialize Existing Product Rows (e.g., the first one)
-    const initialRows = productItemsContainer.querySelectorAll('.product-row');
-    initialRows.forEach((row, index) => {
-        const productSelect = row.querySelector('.product-select');
-        if (productSelect) {
-            populateProductSelect(productSelect, productItemCategoryFilterEl ? productItemCategoryFilterEl.value : ""); 
-        }
-        addRowEventListeners(row);
-        const removeBtn = row.querySelector('.remove-product-row-btn');
-        if (removeBtn) {
-            removeBtn.style.display = (initialRows.length > 1 || index > 0) ? 'inline-block' : 'none';
-        }
-    });
-    if (initialRows.length > 0) { // Ensure totals are calculated on page load if rows exist
-        calculateAllTotals();
-    }
-
-    // Form Submission Handler
-    if (addTransactionFormEl) {
-        addTransactionFormEl.addEventListener('submit', function(event) {
-            // Basic validation: ensure at least one product is selected IF there are product rows
-            const productSelects = Array.from(productItemsContainer.querySelectorAll('.product-select'));
-            let hasSelectedProduct = productSelects.some(select => select.value && select.value !== "");
-
-            if (productSelects.length > 0 && !hasSelectedProduct) {
-                event.preventDefault(); 
-                alert('Please select at least one product for the transaction.');
-                return;
+            if (productItemsContainer) {
+                productItemsContainer.querySelectorAll('.product-row').forEach(row => {
+                    const selectEl = row.querySelector('.product-select');
+                    if (selectEl) { populateProductSelect(selectEl, selectedCategoryIdValue); }
+                });
             }
-            
-            let allQuantitiesValid = true;
-            let stockErrorMessage = "";
-            productItemsContainer.querySelectorAll('.product-row').forEach(row => {
+    });}
+    if(amountPaidInputEl) { amountPaidInputEl.addEventListener('input', calculateAllTotals); }
+
+    if (productItemsContainer) {
+        const initialProductRows = productItemsContainer.querySelectorAll('.product-row');
+        console.log(`Found ${initialProductRows.length} initial product rows to populate.`);
+        initialProductRows.forEach((row, index) => {
+            const productSelect = row.querySelector('.product-select');
+            if (productSelect) {
+                populateProductSelect(productSelect, productItemCategoryFilterEl ? productItemCategoryFilterEl.value : ""); 
+            }
+            addRowEventListeners(row);
+            const removeBtn = row.querySelector('.remove-product-row-btn');
+            if (removeBtn) { 
+                removeBtn.style.display = (initialProductRows.length > 1) ? 'inline-block' : 'none';
+            }
+        });
+        if (initialProductRows.length > 0) { 
+            calculateAllTotals(); 
+        }
+    } else {
+        console.warn("productItemsContainer not found for initializing rows.");
+    }
+
+    if (addTransactionFormEl) { addTransactionFormEl.addEventListener('submit', function(event) { 
+            const productRows = productItemsContainer ? productItemsContainer.querySelectorAll('.product-row') : [];
+            let hasAtLeastOneProduct = false; let formIsValid = true; let alertMessage = "";
+            if (productRows.length === 0 && productItemsContainer) { 
+                alertMessage = 'Please add at least one product to the transaction.'; 
+                formIsValid = false; 
+            }
+            productRows.forEach(row => {
                 const productSelect = row.querySelector('.product-select');
                 const quantityInput = row.querySelector('.quantity-input');
                 if(quantityInput) quantityInput.classList.remove('is-invalid'); 
-
                 if (productSelect && productSelect.value && productSelect.value !== "") {
-                    const quantity = parseInt(quantityInput.value);
+                    hasAtLeastOneProduct = true; const quantity = parseInt(quantityInput.value);
                     const selectedOption = productSelect.options[productSelect.selectedIndex];
-                    const stock = parseInt(selectedOption.dataset.stock);
-                    const productName = selectedOption.dataset.name;
-
+                    const stock = parseInt(selectedOption.dataset.stock); const productName = selectedOption.dataset.name;
                     if (isNaN(quantity) || quantity <= 0) {
-                        allQuantitiesValid = false;
-                        if(quantityInput) quantityInput.classList.add('is-invalid');
-                        if (!stockErrorMessage) stockErrorMessage = "Please enter a valid quantity (greater than 0) for selected products.";
+                        formIsValid = false; if(quantityInput) quantityInput.classList.add('is-invalid');
+                        if (!alertMessage) alertMessage = `Please enter a valid quantity (greater than 0) for "${productName}".`;
+                        else alertMessage += `\nInvalid quantity for "${productName}".`;
                     } else if (quantity > stock) {
-                        allQuantitiesValid = false;
-                        if(quantityInput) quantityInput.classList.add('is-invalid');
-                        stockErrorMessage += `\nQuantity for "${productName}" (${quantity}) exceeds available stock (${stock}).`;
+                        formIsValid = false; if(quantityInput) quantityInput.classList.add('is-invalid');
+                        if (!alertMessage) alertMessage = `Quantity for "${productName}" (${quantity}) exceeds available stock (${stock}).`;
+                        else alertMessage += `\nStock issue for "${productName}": requested ${quantity}, available ${stock}.`;
                     }
                 }
             });
-
-            if (!allQuantitiesValid) {
-                event.preventDefault();
-                alert(stockErrorMessage.trim() || 'Please correct the quantities for the selected products.');
-                return;
+            if (!hasAtLeastOneProduct && productRows.length > 0) { 
+                 if(productRows[0] && productRows[0].querySelector('.product-select') && productRows[0].querySelector('.product-select').value === "") {
+                    formIsValid = false; if (!alertMessage) alertMessage = 'Please select at least one product for the transaction.';
+                 }
             }
-
+            if (!formIsValid) {
+                event.preventDefault(); console.warn("[Form Submit] Validation FAILED:", alertMessage);
+                alert(alertMessage.trim() || 'Please correct the errors in the product items.'); return;
+            }
             const submitBtn = document.getElementById('saveTransactionBtn');
-            if (submitBtn) {
-                submitBtn.disabled = true;
-                submitBtn.innerHTML = `<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Recording...`;
-            }
-        });
-    }
+            if (submitBtn) { submitBtn.disabled = true; submitBtn.innerHTML = `<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Recording...`; }
+    });}
+    console.log("--- Add Transaction Page JavaScript Fully Initialized ---");
 });
 </script>
 {% endblock %}
