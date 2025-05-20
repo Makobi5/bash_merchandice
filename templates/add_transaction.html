@@ -17,7 +17,8 @@
 <div class="container mt-4">
     {# Hidden div to store product data as JSON string #}
     {# Ensure products_json_for_js is correctly passed from Flask and is a list of product objects #}
-    <div id="productsDataStore" data-products="{{ products_json_for_js | tojson | safe if products_json_for_js else '[]' }}" style="display: none;"></div>
+    {# MODIFIED: Changed attribute quotes from " to ' for data-products #}
+    <div id="productsDataStore" data-products='{{ products_json_for_js | tojson | safe if products_json_for_js else "[]" }}' style="display: none;"></div>
 
     <div class="card">
         <div class="card-header">
@@ -234,19 +235,24 @@ document.addEventListener('DOMContentLoaded', function() {
                         console.log("SUCCESS: 'allAvailableProducts' array populated:", allAvailableProducts);
                     } else {
                         console.error("ERROR: Parsed data is NOT an array. Data was:", parsedProducts);
+                         allAvailableProducts = []; // Ensure it's an array on error
                     }
                 } catch (e) {
                     console.error("ERROR: Failed to JSON.parse the string. Error:", e);
                     console.error("String that failed parsing was:", dataToParse);
+                    allAvailableProducts = []; // Ensure it's an array on error
                 }
             } else {
                 console.warn("WARNING: Data string is empty or '[]' after cleaning. No products to load.");
+                allAvailableProducts = []; // Ensure it's an array
             }
         } else {
             console.warn("WARNING: 'data-products' attribute is null or empty. No products to load.");
+            allAvailableProducts = []; // Ensure it's an array
         }
     } else {
         console.error("CRITICAL ERROR: 'productsDataStore' div element NOT FOUND.");
+        allAvailableProducts = []; // Ensure it's an array
     }
     console.log("Final 'allAvailableProducts' before populating selects:", allAvailableProducts);
     console.log("--- END JS DEBUG: Product Loading ---");
@@ -286,17 +292,24 @@ document.addEventListener('DOMContentLoaded', function() {
     // --- Product Row & Totals Logic ---
     function populateProductSelect(selectElement, selectedCategoryIdValue = "") {
         if (!selectElement) {
+            console.error("[populateProductSelect] Called with null selectElement.");
             return;
         }
         const currentSelectedProductId = selectElement.value; 
         selectElement.innerHTML = '<option value="">Select Product</option>'; 
+        
+        if (!Array.isArray(allAvailableProducts)) {
+            console.error("[populateProductSelect] allAvailableProducts is not an array:", allAvailableProducts);
+            return; // Exit if product data is not available or not an array
+        }
+
         const filteredProducts = selectedCategoryIdValue && selectedCategoryIdValue !== ""
             ? allAvailableProducts.filter(p => String(p.category_id) === String(selectedCategoryIdValue))
             : allAvailableProducts;
 
         filteredProducts.forEach(p => {
-            if (!p.id || !p.name) {
-                console.error("[populateProductSelect] Product is missing ID or Name:", p);
+            if (!p || typeof p !== 'object' || !p.id || !p.name) { // Added check for p itself and type
+                console.error("[populateProductSelect] Product is missing ID or Name, or is not an object:", p);
                 return; 
             }
             const opt = document.createElement('option');
@@ -342,10 +355,12 @@ document.addEventListener('DOMContentLoaded', function() {
                 const quantityInput = row.querySelector('.quantity-input');
                 if (productSelect && quantityInput && productSelect.value) {
                     const selectedOption = productSelect.options[productSelect.selectedIndex];
-                    const price = parseFloat(selectedOption.dataset.price) || 0;
-                    const quantity = parseInt(quantityInput.value) || 0;
-                    if (price > 0 && quantity > 0) {
-                        subtotal += price * quantity;
+                    if (selectedOption && selectedOption.dataset.price) { // Check if selectedOption and its dataset.price exist
+                        const price = parseFloat(selectedOption.dataset.price) || 0;
+                        const quantity = parseInt(quantityInput.value) || 0;
+                        if (price > 0 && quantity > 0) {
+                            subtotal += price * quantity;
+                        }
                     }
                 }
             });
@@ -445,6 +460,11 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (productSelect && productSelect.value && productSelect.value !== "") {
                     hasAtLeastOneProduct = true; const quantity = parseInt(quantityInput.value);
                     const selectedOption = productSelect.options[productSelect.selectedIndex];
+                     if (!selectedOption || !selectedOption.dataset.stock || !selectedOption.dataset.name) {
+                        console.warn("Missing data attributes on selected product option for validation.", selectedOption);
+                        // Potentially skip validation for this row or handle as an error
+                        return; 
+                    }
                     const stock = parseInt(selectedOption.dataset.stock); const productName = selectedOption.dataset.name;
                     if (isNaN(quantity) || quantity <= 0) {
                         formIsValid = false; if(quantityInput) quantityInput.classList.add('is-invalid');
