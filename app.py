@@ -456,22 +456,18 @@ def products():
         print(f"Error fetching products: {e}")
         flash("Could not load product data.", "danger")
         return render_template('products.html', products=[])
-
-# app.py
-# app.py
-
+    
 @app.route('/transactions')
 @login_required
 def transactions():
     if not check_supabase():
         flash("Database connection failed.", "danger")
-        return render_template('transactions.html', transactions=[])
+        return render_template('transactions.html', transactions=[], user=session.get('user')) # Pass user for base template
     
     try:
-        # Get filter parameters from query string
         start_date_str = request.args.get('start_date')
         end_date_str = request.args.get('end_date')
-        search_term = request.args.get('search_term', '').strip().lower() # For customer name or txn code
+        search_term = request.args.get('search_term', '').strip().lower() 
 
         query = supabase.table('transactions') \
             .select('''
@@ -481,12 +477,14 @@ def transactions():
                 total_amount, 
                 payment_method,
                 notes,
+                amount_paid,
+                balance_due,
                 customer:customers ( id, name ), 
-                employee_creator:created_by_user_id ( id, first_name, last_name ),
-                items:transaction_items ( products (name), quantity, price )
+                employee_creator:created_by_user_id ( id, first_name, last_name )
             ''')
+            # Removed items:transaction_items from main list view select for brevity, 
+            # it's still in receipt_details. Add back if needed for other purposes.
 
-        # Apply date filters
         if start_date_str:
             try:
                 start_date_dt = datetime.datetime.strptime(start_date_str, '%Y-%m-%d').replace(tzinfo=datetime.timezone.utc)
@@ -496,17 +494,11 @@ def transactions():
         
         if end_date_str:
             try:
-                # To make end_date inclusive, filter up to the end of that day
                 end_date_dt = (datetime.datetime.strptime(end_date_str, '%Y-%m-%d') + datetime.timedelta(days=1) - datetime.timedelta(seconds=1)).replace(tzinfo=datetime.timezone.utc)
                 query = query.lte('date', end_date_dt.isoformat())
             except ValueError:
                 flash("Invalid 'To Date' format. Please use YYYY-MM-DD.", "warning")
         
-        # Note: Direct filtering on joined customer name like `customer:name.ilike.%{search_term}%`
-        # is not straightforward with the basic Python client query builder for arbitrary text.
-        # This often requires an RPC or view for efficient server-side searching on related fields.
-        # The current implementation will filter by customer name in Python after fetching.
-        # If search_term is a transaction code, we can filter that at DB level.
         if search_term and search_term.upper().startswith("TXN-"):
              query = query.ilike('transaction_code', f"%{search_term}%")
         
@@ -516,53 +508,41 @@ def transactions():
         transactions_data = []
 
         for txn in raw_transactions:
-            customer_info = txn.get('customer')
-            customer_name = customer_info['name'] if customer_info else 'Walk-in/N/A'
+            customer_info = txn.get('customer') 
+            customer_name = customer_info['name'] if customer_info and customer_info.get('name') else 'Walk-in/N/A'
             
-            # Python-side filtering for customer name if search_term is not a transaction code
             if search_term and not search_term.upper().startswith("TXN-"):
-                if search_term not in customer_name.lower():
-                    continue # Skip this transaction
+                if search_term not in customer_name.lower() and search_term not in (txn.get('transaction_code') or '').lower() : # also check txn code
+                    continue
 
             employee_info = txn.get('employee_creator')
-            employee_name = f"{employee_info['first_name']} {employee_info['last_name']}" if employee_info else 'System/Unknown'
+            employee_name = f"{employee_info['first_name']} {employee_info['last_name']}" if employee_info and employee_info.get('first_name') else 'System/Unknown'
             
-            items_for_receipt = []
-            if txn.get('items'):
-                for item in txn['items']:
-                    product_name = item['products']['name'] if item.get('products') else 'Unknown Item'
-                    items_for_receipt.append({
-                        'name': product_name,
-                        'quantity': item['quantity'],
-                        'price': item['price']
-                    })
-
             transactions_data.append({
                 'id': txn['id'],
                 'transaction_code': txn['transaction_code'],
-                'date': datetime.datetime.fromisoformat(txn['date'].replace('Z', '+00:00')).strftime('%d/%m/%Y %I:%M %p'),
+                'date': datetime.datetime.fromisoformat(txn['date'].replace('Z', '+00:00')).strftime('%d/%m/%Y %I:%M %p'), # Format date here
                 'customer_name': customer_name,
                 'employee_name': employee_name,
                 'total': txn['total_amount'],
+                'amount_paid': txn.get('amount_paid'),
+                'balance_due': txn.get('balance_due'),
                 'payment_method': txn.get('payment_method', 'N/A'),
-                'items': items_for_receipt # For receipt modal
             })
         
         return render_template('transactions.html', 
                                transactions=transactions_data,
-                               start_date_filter=start_date_str, # Pass back for form repopulation
+                               start_date_filter=start_date_str, 
                                end_date_filter=end_date_str,
-                               search_term_filter=request.args.get('search_term', '')) # Use original search_term
+                               search_term_filter=request.args.get('search_term', ''),
+                               user=session.get('user')) # Pass user for base template
     
     except Exception as e:
         print(f"Error fetching transactions: {type(e).__name__} - {e}")
         import traceback
         traceback.print_exc()
         flash("Could not load transaction data. Check server logs for details.", "danger")
-        return render_template('transactions.html', transactions=[],
-                               start_date_filter=request.args.get('start_date'),
-                               end_date_filter=request.args.get('end_date'),
-                               search_term_filter=request.args.get('search_term'))
+        return render_template('transactions.html', transactions=[], user=session.get('user'))
 
 @app.route('/transactions/edit/<int:txn_id>', methods=['GET', 'POST'])
 @login_required
@@ -1095,44 +1075,79 @@ def employees():
 
 @app.route('/customers')
 @login_required
-def customers_page(): # Renamed to avoid conflict with any 'customers' variable
+def customers_page():
     if not check_supabase():
         flash("Database connection failed.", "danger")
-        return render_template('customers.html', customers=[])
+        return render_template('customers.html', customers=[], user=session.get('user')) # Pass user
     try:
         response = supabase.table('customers') \
             .select('id, name, phone_number, email, address, created_at') \
             .order('name', desc=False) \
             .execute()
         
-        return render_template('customers.html', customers=response.data or [])
+        # The customers.html template will use the format_datetime filter for created_at
+        return render_template('customers.html', customers=response.data or [], user=session.get('user')) # Pass user
     except Exception as e:
         print(f"Error fetching customers: {e}")
         flash("Could not load customer data.", "danger")
-        return render_template('customers.html', customers=[])
+        return render_template('customers.html', customers=[], user=session.get('user'))
 
 @app.template_filter('format_datetime')
-def format_datetime_filter(value, format='medium'):
+def format_datetime_filter(value, format_style='medium'): # Renamed 'format' to 'format_style' to avoid conflict
     if value is None:
         return ""
-    # Ensure it's a datetime object
+    
+    dt_object = None
     if isinstance(value, str):
         try:
-            # Attempt to parse ISO format with optional fraction and timezone
-            value = datetime.datetime.fromisoformat(value.replace('Z', '+00:00'))
+            # Handle ISO format strings from Supabase (which may or may not have 'Z')
+            if value.endswith('Z'):
+                dt_object = datetime.datetime.fromisoformat(value.replace('Z', '+00:00'))
+            elif '+' in value[10:]: # Check for timezone offset like +00:00
+                 dt_object = datetime.datetime.fromisoformat(value)
+            else: # Might be a string without timezone, assume UTC if so, or could be already formatted.
+                  # This part can be tricky. For now, let's try parsing as ISO.
+                  # If it's a timestamp with T but no Z or offset, fromisoformat handles it as naive.
+                try:
+                    dt_object = datetime.datetime.fromisoformat(value)
+                except ValueError: # If fromisoformat fails, it might be an already custom-formatted string
+                    return value 
         except ValueError:
-            return value # Return original string if parsing fails
-    if format == 'full':
-        fmt = "EEEE, d. MMMM y 'at' HH:mm:ss zzzz"
-    elif format == 'medium':
-        fmt = "dd.MM.y HH:mm:ss"
-    elif format == '%d %b %Y': # Custom format example
-         fmt = 'dd MMM yyyy'
+            return value # Return original string if robust parsing fails
+    elif isinstance(value, datetime.datetime):
+        dt_object = value
     else:
-        fmt = format
-    # Use UTC if timezone-naive, otherwise keep original timezone
-    tz = datetime.timezone.utc if value.tzinfo is None else None
-    return babel.dates.format_datetime(value, fmt, locale='en', tzinfo=tz)
+        return str(value) # Fallback for other unexpected types
+
+    if not isinstance(dt_object, datetime.datetime): # Check if conversion was successful
+        return "Invalid Date" # Or return the original 'value'
+
+    # Define fmt_pattern based on format_style argument
+    fmt_pattern_actual = ""
+    if format_style == 'full':
+        fmt_pattern_actual = "EEEE, d. MMMM y 'at' HH:mm:ss zzzz"
+    elif format_style == 'medium':
+        fmt_pattern_actual = "dd.MM.y HH:mm:ss"
+    elif format_style == '%d %b %Y': 
+         fmt_pattern_actual = 'dd MMM yyyy' 
+    elif isinstance(format_style, str) : # Allow passing custom babel format string
+        fmt_pattern_actual = format_style
+    else: # Default pattern
+        fmt_pattern_actual = "dd.MM.y HH:mm:ss" 
+    
+    # Ensure dt_object is timezone-aware for Babel; if naive, assume UTC.
+    if dt_object.tzinfo is None or dt_object.tzinfo.utcoffset(dt_object) is None:
+        dt_object = dt_object.replace(tzinfo=datetime.timezone.utc)
+    
+    try:
+        return babel.dates.format_datetime(dt_object, fmt_pattern_actual, locale='en')
+    except Exception as e_babel:
+        print(f"Error formatting datetime with Babel: {e_babel}. Value: {value}, Format Style: {format_style}")
+        try:
+            # A more general ISO-like fallback if Babel fails
+            return dt_object.strftime('%Y-%m-%d %H:%M:%S %Z') 
+        except:
+            return "Date Format Error"
 
 @app.route('/reports')
 @login_required
