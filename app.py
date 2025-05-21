@@ -462,13 +462,14 @@ def products():
 def transactions():
     if not check_supabase():
         flash("Database connection failed.", "danger")
-        return render_template('transactions.html', transactions=[], user=session.get('user')) # Pass user for base template
+        return render_template('transactions.html', transactions=[], user=session.get('user'))
     
     try:
         start_date_str = request.args.get('start_date')
         end_date_str = request.args.get('end_date')
         search_term = request.args.get('search_term', '').strip().lower() 
 
+        print("--- TRANSACTIONS ROUTE: Using EXPLICIT FK JOIN for employee_creator ---")
         query = supabase.table('transactions') \
             .select('''
                 id, 
@@ -480,10 +481,12 @@ def transactions():
                 amount_paid,
                 balance_due,
                 customer:customers ( id, name ), 
-                employee_creator:created_by_user_id ( id, first_name, last_name )
+                employee_creator:created_by_user_id!fk_transactions_creator_user_profile ( auth_user_id, first_name, last_name ) 
             ''')
-            # Removed items:transaction_items from main list view select for brevity, 
-            # it's still in receipt_details. Add back if needed for other purposes.
+        # If the above join doesn't work, and your FK is correctly named (e.g., fk_transactions_creator_auth_user), try:
+        # employee_creator:created_by_user_id!fk_transactions_creator_auth_user(first_name, last_name)
+        # Or, more simply if Supabase infers from the FK on created_by_user_id:
+        # employee_creator:created_by_user_id(first_name, last_name)
 
         if start_date_str:
             try:
@@ -505,6 +508,7 @@ def transactions():
         response = query.order('date', desc=True).execute()
         
         raw_transactions = response.data or []
+        print(f"--- DEBUG (JOINED QUERY): Raw transactions fetched: {raw_transactions} ---") # CRITICAL DEBUG LINE
         transactions_data = []
 
         for txn in raw_transactions:
@@ -512,16 +516,26 @@ def transactions():
             customer_name = customer_info['name'] if customer_info and customer_info.get('name') else 'Walk-in/N/A'
             
             if search_term and not search_term.upper().startswith("TXN-"):
-                if search_term not in customer_name.lower() and search_term not in (txn.get('transaction_code') or '').lower() : # also check txn code
+                if not (search_term in customer_name.lower() or \
+                        search_term in (txn.get('transaction_code') or '').lower()):
                     continue
 
             employee_info = txn.get('employee_creator')
-            employee_name = f"{employee_info['first_name']} {employee_info['last_name']}" if employee_info and employee_info.get('first_name') else 'System/Unknown'
-            
+            if employee_info and employee_info.get('first_name'):
+                last_name_str = employee_info.get('last_name', '')
+                employee_name = f"{employee_info.get('first_name')} {last_name_str}".strip()
+            else:
+                employee_name = 'System/Unknown'
+                # Log if data is missing for a known creator
+                if txn.get('created_by_user_id') and not employee_info:
+                   print(f"--- WARNING: Join for employee_creator failed for txn {txn.get('transaction_code')} (creator_id: {txn.get('created_by_user_id')}). employee_info was None or empty. ---")
+                elif txn.get('created_by_user_id') and employee_info and not employee_info.get('first_name'):
+                   print(f"--- WARNING: employee_creator was fetched but first_name missing for txn {txn.get('transaction_code')}. Fetched: {employee_info} ---")
+
             transactions_data.append({
                 'id': txn['id'],
                 'transaction_code': txn['transaction_code'],
-                'date': datetime.datetime.fromisoformat(txn['date'].replace('Z', '+00:00')).strftime('%d/%m/%Y %I:%M %p'), # Format date here
+                'date': datetime.datetime.fromisoformat(txn['date'].replace('Z', '+00:00')).strftime('%d/%m/%Y %I:%M %p'),
                 'customer_name': customer_name,
                 'employee_name': employee_name,
                 'total': txn['total_amount'],
@@ -535,10 +549,10 @@ def transactions():
                                start_date_filter=start_date_str, 
                                end_date_filter=end_date_str,
                                search_term_filter=request.args.get('search_term', ''),
-                               user=session.get('user')) # Pass user for base template
+                               user=session.get('user'))
     
     except Exception as e:
-        print(f"Error fetching transactions: {type(e).__name__} - {e}")
+        print(f"Error fetching transactions (JOINED QUERY): {type(e).__name__} - {e}")
         import traceback
         traceback.print_exc()
         flash("Could not load transaction data. Check server logs for details.", "danger")
