@@ -464,20 +464,17 @@ def transactions():
         flash("Database connection failed.", "danger")
         return render_template('transactions.html', transactions=[], user=session.get('user'))
     
-    # Also check if admin client is available, as we'll need it
     admin_client_available = check_supabase_admin() and supabase_admin is not None
     if not admin_client_available:
-        print("--- WARNING: Supabase ADMIN client not available. 'Processed By' names may not be fetched. ---")
-        # Decide if you want to flash a warning to the user or just log it.
-        # flash("Admin client not available, some data might be incomplete.", "warning")
+        print("--- WARNING: Supabase ADMIN client not available. Some data (Processed By, Customer Name) might be incomplete. ---")
+        # flash("Admin client not available, some data might be incomplete.", "warning") # Optional user-facing warning
 
     try:
         start_date_str = request.args.get('start_date')
         end_date_str = request.args.get('end_date')
         search_term = request.args.get('search_term', '').strip().lower() 
 
-        # Step 1: Fetch main transaction data (without joining to users for creator yet)
-        # Use the regular 'supabase' client here to respect RLS on transactions
+        # Step 1: Fetch main transaction data, including customer_id and created_by_user_id
         print("--- TRANSACTIONS ROUTE: Fetching main transaction data (Step 1) ---")
         query = supabase.table('transactions') \
             .select('''
@@ -489,9 +486,10 @@ def transactions():
                 notes,
                 amount_paid,
                 balance_due,
-                created_by_user_id,  # Crucial: fetch this ID
-                customer:customers ( id, name )
+                created_by_user_id,
+                customer_id  # Fetch the raw customer_id
             ''')
+        # NOTE: We are NOT joining to customers or users in this initial query
 
         if start_date_str:
             try:
@@ -509,7 +507,7 @@ def transactions():
         
         if search_term and search_term.upper().startswith("TXN-"):
              query = query.ilike('transaction_code', f"%{search_term}%")
-        
+
         response = query.order('date', desc=True).execute()
         
         raw_transactions = response.data or []
@@ -517,21 +515,43 @@ def transactions():
         transactions_data = []
 
         for txn in raw_transactions:
-            customer_info = txn.get('customer') 
-            customer_name = customer_info['name'] if customer_info and customer_info.get('name') else 'Walk-in/N/A'
-            
+            # Initialize customer_name
+            customer_name = 'Walk-in/N/A' 
+            txn_customer_id = txn.get('customer_id')
+
+            # <<< MODIFICATION START: Fetch customer name using supabase_admin >>>
+            if txn_customer_id and admin_client_available:
+                try:
+                    # print(f"--- DEBUG: Fetching customer for customer_id: {txn_customer_id} using admin client ---")
+                    customer_response = supabase_admin.table('customers') \
+                        .select('name') \
+                        .eq('id', txn_customer_id) \
+                        .maybe_single() \
+                        .execute()
+                    
+                    if customer_response.data and customer_response.data.get('name'):
+                        customer_name = customer_response.data['name']
+                    # else:
+                        # print(f"--- WARNING: No customer name found for id {txn_customer_id} or data was empty. ---")
+                except Exception as e_cust:
+                    print(f"Error fetching customer ID {txn_customer_id} with admin client: {e_cust}")
+            elif txn_customer_id and not admin_client_available: # Fallback if admin client isn't working
+                customer_name = f"Cust. ID: {txn_customer_id}"
+            # <<< MODIFICATION END >>>
+
+            # Filter by customer name or transaction code (if not already filtered by TXN-)
+            # This search now happens *after* we've potentially fetched the customer_name
             if search_term and not search_term.upper().startswith("TXN-"):
                 if not (search_term in customer_name.lower() or \
                         search_term in (txn.get('transaction_code') or '').lower()):
                     continue
-
-            employee_name = 'System/Unknown' # Default
+            
+            # Initialize employee_name
+            employee_name = 'System/Unknown'
             creator_id = txn.get('created_by_user_id')
 
             if creator_id and admin_client_available:
-                # Step 2: Fetch employee name using supabase_admin (bypasses RLS on users table)
                 try:
-                    # print(f"--- DEBUG (Step 2): Fetching user profile for creator_id: {creator_id} ---")
                     user_profile_response = supabase_admin.table('users') \
                         .select('first_name, last_name') \
                         .eq('auth_user_id', creator_id) \
@@ -543,20 +563,17 @@ def transactions():
                         if profile_data.get('first_name'):
                             last_name_str = profile_data.get('last_name', '')
                             employee_name = f"{profile_data.get('first_name')} {last_name_str}".strip()
-                        # else:
-                            # print(f"--- DEBUG (Step 2): Profile found for {creator_id}, but first_name is missing. Data: {profile_data} ---")
-                    # else:
-                        # print(f"--- DEBUG (Step 2): No profile found in public.users for auth_user_id: {creator_id} using admin client. ---")
                 except Exception as e_user_fetch:
                     print(f"Error fetching user profile with admin client for {creator_id}: {e_user_fetch}")
             elif creator_id and not admin_client_available:
-                employee_name = f"User ID: {str(creator_id)[:8]}..." # Show partial ID if admin client fails
+                employee_name = f"User ID: {str(creator_id)[:8]}..."
+
 
             transactions_data.append({
                 'id': txn['id'],
                 'transaction_code': txn['transaction_code'],
                 'date': datetime.datetime.fromisoformat(txn['date'].replace('Z', '+00:00')).strftime('%d/%m/%Y %I:%M %p'),
-                'customer_name': customer_name,
+                'customer_name': customer_name, # Now populated by the two-step fetch
                 'employee_name': employee_name,
                 'total': txn['total_amount'],
                 'amount_paid': txn.get('amount_paid'),
