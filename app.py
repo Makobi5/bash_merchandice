@@ -460,16 +460,25 @@ def products():
 @app.route('/transactions')
 @login_required
 def transactions():
-    if not check_supabase():
+    if not check_supabase(): # Checks regular client
         flash("Database connection failed.", "danger")
         return render_template('transactions.html', transactions=[], user=session.get('user'))
     
+    # Also check if admin client is available, as we'll need it
+    admin_client_available = check_supabase_admin() and supabase_admin is not None
+    if not admin_client_available:
+        print("--- WARNING: Supabase ADMIN client not available. 'Processed By' names may not be fetched. ---")
+        # Decide if you want to flash a warning to the user or just log it.
+        # flash("Admin client not available, some data might be incomplete.", "warning")
+
     try:
         start_date_str = request.args.get('start_date')
         end_date_str = request.args.get('end_date')
         search_term = request.args.get('search_term', '').strip().lower() 
 
-        print("--- TRANSACTIONS ROUTE: Using EXPLICIT FK JOIN for employee_creator ---")
+        # Step 1: Fetch main transaction data (without joining to users for creator yet)
+        # Use the regular 'supabase' client here to respect RLS on transactions
+        print("--- TRANSACTIONS ROUTE: Fetching main transaction data (Step 1) ---")
         query = supabase.table('transactions') \
             .select('''
                 id, 
@@ -480,13 +489,9 @@ def transactions():
                 notes,
                 amount_paid,
                 balance_due,
-                customer:customers ( id, name ), 
-                employee_creator:created_by_user_id!fk_transactions_creator_user_profile ( auth_user_id, first_name, last_name ) 
+                created_by_user_id,  # Crucial: fetch this ID
+                customer:customers ( id, name )
             ''')
-        # If the above join doesn't work, and your FK is correctly named (e.g., fk_transactions_creator_auth_user), try:
-        # employee_creator:created_by_user_id!fk_transactions_creator_auth_user(first_name, last_name)
-        # Or, more simply if Supabase infers from the FK on created_by_user_id:
-        # employee_creator:created_by_user_id(first_name, last_name)
 
         if start_date_str:
             try:
@@ -508,7 +513,7 @@ def transactions():
         response = query.order('date', desc=True).execute()
         
         raw_transactions = response.data or []
-        print(f"--- DEBUG (JOINED QUERY): Raw transactions fetched: {raw_transactions} ---") # CRITICAL DEBUG LINE
+        # print(f"--- DEBUG (Step 1): Raw transactions fetched: {raw_transactions} ---")
         transactions_data = []
 
         for txn in raw_transactions:
@@ -520,17 +525,32 @@ def transactions():
                         search_term in (txn.get('transaction_code') or '').lower()):
                     continue
 
-            employee_info = txn.get('employee_creator')
-            if employee_info and employee_info.get('first_name'):
-                last_name_str = employee_info.get('last_name', '')
-                employee_name = f"{employee_info.get('first_name')} {last_name_str}".strip()
-            else:
-                employee_name = 'System/Unknown'
-                # Log if data is missing for a known creator
-                if txn.get('created_by_user_id') and not employee_info:
-                   print(f"--- WARNING: Join for employee_creator failed for txn {txn.get('transaction_code')} (creator_id: {txn.get('created_by_user_id')}). employee_info was None or empty. ---")
-                elif txn.get('created_by_user_id') and employee_info and not employee_info.get('first_name'):
-                   print(f"--- WARNING: employee_creator was fetched but first_name missing for txn {txn.get('transaction_code')}. Fetched: {employee_info} ---")
+            employee_name = 'System/Unknown' # Default
+            creator_id = txn.get('created_by_user_id')
+
+            if creator_id and admin_client_available:
+                # Step 2: Fetch employee name using supabase_admin (bypasses RLS on users table)
+                try:
+                    # print(f"--- DEBUG (Step 2): Fetching user profile for creator_id: {creator_id} ---")
+                    user_profile_response = supabase_admin.table('users') \
+                        .select('first_name, last_name') \
+                        .eq('auth_user_id', creator_id) \
+                        .maybe_single() \
+                        .execute()
+                    
+                    if user_profile_response.data:
+                        profile_data = user_profile_response.data
+                        if profile_data.get('first_name'):
+                            last_name_str = profile_data.get('last_name', '')
+                            employee_name = f"{profile_data.get('first_name')} {last_name_str}".strip()
+                        # else:
+                            # print(f"--- DEBUG (Step 2): Profile found for {creator_id}, but first_name is missing. Data: {profile_data} ---")
+                    # else:
+                        # print(f"--- DEBUG (Step 2): No profile found in public.users for auth_user_id: {creator_id} using admin client. ---")
+                except Exception as e_user_fetch:
+                    print(f"Error fetching user profile with admin client for {creator_id}: {e_user_fetch}")
+            elif creator_id and not admin_client_available:
+                employee_name = f"User ID: {str(creator_id)[:8]}..." # Show partial ID if admin client fails
 
             transactions_data.append({
                 'id': txn['id'],
@@ -552,7 +572,7 @@ def transactions():
                                user=session.get('user'))
     
     except Exception as e:
-        print(f"Error fetching transactions (JOINED QUERY): {type(e).__name__} - {e}")
+        print(f"Error fetching transactions: {type(e).__name__} - {e}")
         import traceback
         traceback.print_exc()
         flash("Could not load transaction data. Check server logs for details.", "danger")
