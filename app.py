@@ -457,6 +457,9 @@ def products():
         flash("Could not load product data.", "danger")
         return render_template('products.html', products=[])
     
+# app.py
+# ... (other parts of the file) ...
+
 @app.route('/transactions')
 @login_required
 def transactions():
@@ -487,8 +490,8 @@ def transactions():
                 amount_paid,
                 balance_due,
                 created_by_user_id,
-                customer_id  # Fetch the raw customer_id
-            ''')
+                customer_id
+            ''') # <<< CORRECTED: Removed inline comment
         # NOTE: We are NOT joining to customers or users in this initial query
 
         if start_date_str:
@@ -594,6 +597,8 @@ def transactions():
         traceback.print_exc()
         flash("Could not load transaction data. Check server logs for details.", "danger")
         return render_template('transactions.html', transactions=[], user=session.get('user'))
+
+# ... (rest of the file) ...
 
 @app.route('/transactions/edit/<int:txn_id>', methods=['GET', 'POST'])
 @login_required
