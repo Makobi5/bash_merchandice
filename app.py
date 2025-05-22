@@ -772,7 +772,6 @@ def get_current_user_db_id_from_session():
         print(f"Error fetching user DB ID for auth_id {auth_user_id}: {e}")
         return None
 
-
 @app.route('/transactions/add', methods=['GET', 'POST'])
 @login_required
 def add_transaction():
@@ -783,24 +782,25 @@ def add_transaction():
     form_data_on_error = {} 
     current_user_session_data = session.get('user', {})
     current_auth_id_from_session = current_user_session_data.get('id')
-    # print(f"DEBUG: Logged-in user's auth_user_id (from session): {current_auth_id_from_session}") # Kept for verbosity if needed
 
     if request.method == 'POST':
-        # print("--- DEBUG: add_transaction POST received ---") # Kept for verbosity
-        
+        # Store all form fields for potential repopulation on error
         form_data_on_error['customer_selection_type'] = request.form.get('customer_selection_type')
         form_data_on_error['selected_customer_id'] = request.form.get('customer_id')
         form_data_on_error['new_customer_name_text'] = request.form.get('new_customer_name_field', '').strip()
+        # MODIFIED: Get new optional customer fields
+        form_data_on_error['new_customer_phone_text'] = request.form.get('new_customer_phone', '').strip()
+        form_data_on_error['new_customer_email_text'] = request.form.get('new_customer_email', '').strip()
+        form_data_on_error['new_customer_address_text'] = request.form.get('new_customer_address', '').strip()
+        
         form_data_on_error['selected_payment_method'] = request.form.get('payment_method')
         form_data_on_error['notes_text'] = request.form.get('notes', '').strip()
         form_data_on_error['amount_paid_val'] = request.form.get('amount_paid')
 
         current_user_auth_id = session.get('user', {}).get('id')
-        print(f"--- DEBUG: current_user_auth_id FOR TRANSACTION HEADER & ITEMS: {current_user_auth_id} (Type: {type(current_user_auth_id)}) ---")
         if not current_user_auth_id:
             flash("Authentication error: User session not found. Please log in again.", "danger")
-            request.form_data_on_error = form_data_on_error
-            # print("--- END DEBUG: add_transaction POST (auth error) ---")
+            request.form_data_on_error = form_data_on_error # Save form data
             return render_template_add_transaction_form(form_data_on_error)
 
         try:
@@ -839,7 +839,6 @@ def add_transaction():
                         product_id = int(pid_str)
                         quantity = int(qty_str)
                         if quantity <= 0:
-                            # print(f"Skipping product ID {product_id} due to quantity <= 0 ({quantity})")
                             continue 
                         valid_product_ids.append(product_id)
                         valid_quantities.append(quantity)
@@ -852,25 +851,18 @@ def add_transaction():
             for i in range(len(valid_product_ids)):
                 product_id = valid_product_ids[i]
                 quantity = valid_quantities[i]
-
                 product_res = supabase.table('products').select('id, name, price, stock').eq('id', product_id).maybe_single().execute()
                 if not product_res.data:
                     raise ValueError(f"Product with ID {product_id} not found. It may have been removed.")
-                
                 db_product = product_res.data
                 db_price = Decimal(str(db_product['price']))
                 db_stock = int(db_product['stock'])
-
                 if quantity > db_stock:
                     raise ValueError(f"Insufficient stock for '{db_product['name']}'. Requested: {quantity}, Available: {db_stock}.")
-
                 item_subtotal = db_price * Decimal(quantity)
                 processed_items.append({
-                    'product_id': db_product['id'],
-                    'name': db_product['name'],
-                    'quantity': quantity,
-                    'price_at_sale': db_price,
-                    'item_subtotal': item_subtotal
+                    'product_id': db_product['id'], 'name': db_product['name'], 'quantity': quantity,
+                    'price_at_sale': db_price, 'item_subtotal': item_subtotal
                 })
                 grand_total_calculated += item_subtotal
             
@@ -883,21 +875,29 @@ def add_transaction():
             if customer_selection_type == 'new':
                 new_customer_name = request.form.get('new_customer_name_field', '').strip()
                 if not new_customer_name:
-                    raise ValueError("New customer name cannot be empty.")
-                new_customer_data = {'name': new_customer_name}
+                    raise ValueError("New customer name cannot be empty when 'New Customer' is selected.")
                 
-                # Using admin client for customer insert is generally fine as it's an admin-like operation
-                if check_supabase_admin() and supabase_admin:
-                    # print("--- DEBUG: Using supabase_admin to insert new customer (diagnostics) ---")
-                    customer_insert_res = supabase_admin.table('customers').insert(new_customer_data).execute()
-                else:
-                    # print("--- DEBUG: supabase_admin not available, using regular client for customer insert ---")
-                    customer_insert_res = supabase.table('customers').insert(new_customer_data).execute()
+                # MODIFIED: Get optional customer details
+                new_customer_phone = request.form.get('new_customer_phone', '').strip()
+                new_customer_email = request.form.get('new_customer_email', '').strip()
+                new_customer_address = request.form.get('new_customer_address', '').strip()
+
+                new_customer_data = {'name': new_customer_name}
+                # Add optional fields if they have values
+                if new_customer_phone:
+                    new_customer_data['phone_number'] = new_customer_phone
+                if new_customer_email:
+                    new_customer_data['email'] = new_customer_email
+                if new_customer_address:
+                    new_customer_data['address'] = new_customer_address
+                
+                # Using admin client for customer insert
+                client_for_customer_insert = supabase_admin if check_supabase_admin() and supabase_admin else supabase
+                customer_insert_res = client_for_customer_insert.table('customers').insert(new_customer_data).execute()
 
                 if not customer_insert_res.data or not customer_insert_res.data[0].get('id'):
                     error_info = getattr(customer_insert_res, 'error', "Unknown error creating customer.")
                     db_message = getattr(error_info, 'message', str(error_info)) if error_info else "No specific error message."
-                    # print(f"--- DEBUG: Failed to insert customer. Response: {customer_insert_res} ---")
                     raise Exception(f"Failed to create new customer profile: {db_message}")
                 customer_id_for_txn = customer_insert_res.data[0]['id']
             elif customer_selection_type == 'existing':
@@ -914,100 +914,60 @@ def add_transaction():
             balance_due_calculated = grand_total_calculated - amount_paid_val
 
             transaction_payload = {
-                'transaction_code': transaction_code,
-                'date': transaction_date,
-                'total_amount': float(grand_total_calculated),
-                'payment_method': payment_method,
-                'notes': notes,
-                'customer_id': customer_id_for_txn,
-                'created_by_user_id': current_user_auth_id, # This ensures the creator is logged
-                'amount_paid': float(amount_paid_val),
-                'balance_due': float(balance_due_calculated)
+                'transaction_code': transaction_code, 'date': transaction_date,
+                'total_amount': float(grand_total_calculated), 'payment_method': payment_method,
+                'notes': notes, 'customer_id': customer_id_for_txn,
+                'created_by_user_id': current_user_auth_id,
+                'amount_paid': float(amount_paid_val), 'balance_due': float(balance_due_calculated)
             }
             
-            # print(f"--- DEBUG: Transaction Payload going to DB: {transaction_payload} ---")
-            
-            insert_txn_res = None
-            if check_supabase_admin() and supabase_admin:
-                # print("--- DEBUG: Using supabase_admin to insert transaction header ---")
-                insert_txn_res = supabase_admin.table('transactions').insert(transaction_payload).execute()
-            else:
-                # print("--- DEBUG: supabase_admin not available, using regular client for transaction header ---")
-                insert_txn_res = supabase.table('transactions').insert(transaction_payload).execute()
-
+            client_for_txn_header = supabase_admin if check_supabase_admin() and supabase_admin else supabase
+            insert_txn_res = client_for_txn_header.table('transactions').insert(transaction_payload).execute()
 
             if not insert_txn_res.data or not insert_txn_res.data[0].get('id'):
                 db_error = getattr(insert_txn_res, 'error', "Unknown error inserting transaction.")
                 db_message = getattr(db_error, 'message', str(db_error)) if db_error else "No specific error message."
-                # print(f"--- DEBUG: Failed to insert transaction. Response: {insert_txn_res} ---")
                 raise Exception(f"Failed to record transaction: {db_message}")
             
             new_transaction_id = insert_txn_res.data[0]['id']
-            # print(f"--- DEBUG: New Transaction ID: {new_transaction_id} ---")
 
-            # MODIFIED SECTION FOR TRANSACTION ITEMS INSERT:
+            client_for_txn_items = supabase_admin if check_supabase_admin() and supabase_admin else supabase
             for item in processed_items:
                 item_payload = {
-                    'transaction_id': new_transaction_id,
-                    'product_id': item['product_id'],
-                    'quantity': item['quantity'],
-                    'price': float(item['price_at_sale']),
-                    'sub_total': float(item['item_subtotal']),
-                    'created_by_user_id': current_user_auth_id # Explicitly set creator
+                    'transaction_id': new_transaction_id, 'product_id': item['product_id'],
+                    'quantity': item['quantity'], 'price': float(item['price_at_sale']),
+                    'sub_total': float(item['item_subtotal']), 'created_by_user_id': current_user_auth_id
                 }
+                insert_item_res = client_for_txn_items.table('transaction_items').insert(item_payload).execute()
                 
-                # print(f"--- DEBUG: Transaction Item Payload: {item_payload} ---")
-                insert_item_res = None
-                if check_supabase_admin() and supabase_admin:
-                    # print(f"--- DEBUG: Using supabase_admin to insert transaction_item for txn_id {new_transaction_id} ---")
-                    insert_item_res = supabase_admin.table('transaction_items').insert(item_payload).execute()
-                else:
-                    # print(f"--- DEBUG: supabase_admin not available, using regular client for transaction_item for txn_id {new_transaction_id} ---")
-                    # This would be subject to RLS if regular client is used.
-                    insert_item_res = supabase.table('transaction_items').insert(item_payload).execute()
-                
-                if not insert_item_res.data: # Check if data was returned (success for insert)
+                if not insert_item_res.data:
                     db_item_error = getattr(insert_item_res, 'error', f"Failed to add item '{item['name']}' to transaction.")
                     db_item_message = getattr(db_item_error, 'message', str(db_item_error)) if db_item_error else "No specific error message."
-                    # print(f"--- DEBUG: Failed to insert transaction item. Item: {item_payload}, Response: {insert_item_res} ---")
                     flash(f"Critical Error: Transaction {transaction_code} header recorded, but failed to add item '{item['name']}'. Error: {db_item_message}. Please verify transaction details.", "danger")
-                    # Potentially, you might want to roll back the transaction header here or at least log it more severely.
-                    # For now, it continues to process other items and stock.
                 
-                # Stock Update (using regular supabase client, assuming RLS allows updates)
                 current_stock_before_update_res = supabase.table('products').select('stock').eq('id', item['product_id']).single().execute()
                 if current_stock_before_update_res.data:
                     current_db_stock = current_stock_before_update_res.data['stock']
                     new_stock_level = current_db_stock - item['quantity']
                     if new_stock_level < 0:
                         flash(f"Critical stock error for '{item['name']}' during final update. Stock cannot go negative. Manual correction needed for TXN {transaction_code}.", "danger")
-                        # print(f"CRITICAL STOCK ERROR for product {item['product_id']} during update for TXN {new_transaction_id}. Calculated new stock {new_stock_level} is negative.")
                     else:
                         update_stock_res = supabase.table('products').update({'stock': new_stock_level, 'updated_at': datetime.datetime.now(datetime.timezone.utc).isoformat()}).eq('id', item['product_id']).execute()
                         if hasattr(update_stock_res, 'error') and update_stock_res.error:
                              flash(f"Warning: Stock for '{item['name']}' may not have updated correctly for TXN {transaction_code}. Error: {update_stock_res.error.message}", "warning") # type: ignore
-                             # print(f"--- DEBUG: Failed to update stock for product {item['product_id']}. Response: {update_stock_res}")
                 else:
                     flash(f"Warning: Could not re-fetch stock for '{item['name']}' before update for TXN {transaction_code}. Stock not updated.", "warning")
-                    # print(f"--- DEBUG: Failed to re-fetch stock for product {item['product_id']} before final update.")
 
             flash(f"Transaction {transaction_code} recorded successfully!", "success")
-            # print(f"--- DEBUG: add_transaction POST successful. Redirecting. ---")
             return redirect(url_for('transactions'))
 
         except ValueError as ve: 
-            # print(f"ValueError during POST processing: {ve}")
             flash(str(ve), "danger")
             request.form_data_on_error = form_data_on_error 
         except InvalidOperation as ioe:
-            # print(f"InvalidOperation during POST processing: {ioe}")
             flash("Invalid number format for amount paid. Please use numbers only.", "danger")
             request.form_data_on_error = form_data_on_error
         except Exception as e: 
-            # print(f"Generic error during POST processing: {type(e).__name__} - {e}")
-            # import traceback
-            # traceback.print_exc() # Keep this for detailed server-side logs
-            
             error_message_to_flash = f"An unexpected error occurred: {str(e)}"
             if hasattr(e, 'message') and isinstance(e.message, dict):
                 specific_db_message = e.message.get('message', '')
@@ -1017,13 +977,11 @@ def add_transaction():
                     error_message_to_flash = f"Operation failed due to security policy on {table_name}. Please check permissions or contact admin."
                 elif specific_db_message:
                     error_message_to_flash = f"Database error: {specific_db_message}"
-            
             flash(error_message_to_flash, "danger")
             request.form_data_on_error = form_data_on_error
         
-        # print("--- END DEBUG: add_transaction POST (error or fall-through to GET rendering) ---")
-
-    return render_template_add_transaction_form(getattr(request, 'form_data_on_error', {}))
+    # Pass form_data to the template rendering function for GET or for POST error
+    return render_template_add_transaction_form(form_data_on_error)
 
 
 def render_template_add_transaction_form(form_data_for_template):

@@ -10,14 +10,22 @@
     .product-category-filter { margin-bottom: 1rem; } /* Style for the filter row */
     .item-total-display, #amountPaidInput { text-align: right; } /* Ensure amount paid is right-aligned if desired */
     .is-invalid { border-color: #dc3545 !important; } /* Basic invalid style */
+    
+    /* Styles for new customer optional fields */
+    .new-customer-optional-fields {
+        margin-top: 10px; /* Add some space above these fields */
+        padding-left: 15px; /* Indent them slightly for visual grouping */
+        border-left: 2px solid #eee; /* Optional visual cue */
+    }
+    .new-customer-optional-fields .form-label {
+        font-size: 0.9em; /* Slightly smaller labels for optional fields */
+    }
 </style>
 {% endblock %}
 
 {% block content %}
 <div class="container mt-4">
     {# Hidden div to store product data as JSON string #}
-    {# Ensure products_json_for_js is correctly passed from Flask and is a list of product objects #}
-    {# MODIFIED: Changed attribute quotes from " to ' for data-products #}
     <div id="productsDataStore" data-products='{{ products_json_for_js | tojson | safe if products_json_for_js else "[]" }}' style="display: none;"></div>
 
     <div class="card">
@@ -47,10 +55,29 @@
                             {% endfor %}
                         </select>
                     </div>
+                    
+                    {# MODIFIED: New Customer Section with Optional Fields #}
                     <div class="col-md-4" id="newCustomerNameSection" style="display:none;">
-                        <label for="new_customer_name_field" class="form-label">New Customer Name</label>
+                        <label for="new_customer_name_field" class="form-label">New Customer Name <span class="text-danger">*</span></label>
                         <input type="text" class="form-control" id="new_customer_name_field" name="new_customer_name_field" placeholder="Enter customer name" value="{{ form_data.new_customer_name_text or '' }}">
+                        
+                        <div class="new-customer-optional-fields mt-2">
+                            <div class="mb-2">
+                                <label for="new_customer_phone" class="form-label">Phone Number (Optional)</label>
+                                <input type="tel" class="form-control form-control-sm" id="new_customer_phone" name="new_customer_phone" placeholder="e.g., 07XXXXXXXX" value="{{ form_data.new_customer_phone_text or '' }}">
+                            </div>
+                            <div class="mb-2">
+                                <label for="new_customer_email" class="form-label">Email (Optional)</label>
+                                <input type="email" class="form-control form-control-sm" id="new_customer_email" name="new_customer_email" placeholder="e.g., customer@example.com" value="{{ form_data.new_customer_email_text or '' }}">
+                            </div>
+                            <div>
+                                <label for="new_customer_address" class="form-label">Address (Optional)</label>
+                                <textarea class="form-control form-control-sm" id="new_customer_address" name="new_customer_address" rows="2" placeholder="e.g., Plot 123, Kampala Rd">{{ form_data.new_customer_address_text or '' }}</textarea>
+                            </div>
+                        </div>
                     </div>
+                    {# END MODIFIED New Customer Section #}
+
                      <div class="col-md-4"> {# This will wrap due to previous 3 cols or adjust grid #}
                         <label for="payment_method" class="form-label">Payment Method <span class="text-danger">*</span></label>
                         <select class="form-select" id="payment_method" name="payment_method" required>
@@ -73,7 +100,6 @@
                         <label for="productItemCategoryFilter" class="form-label">Filter Products by Category</label>
                         <select class="form-select" id="productItemCategoryFilter">
                             <option value="">All Available Categories</option>
-                            {# Populate this from the all_categories variable passed from Flask #}
                             {% for category in all_categories %}
                                 <option value="{{ category.id }}">{{ category.name }}</option>
                             {% endfor %}
@@ -83,12 +109,10 @@
                 <!-- End Product Category Filter Row -->
 
                 <div id="productItemsContainer">
-                    <!-- Initial product row (populated by JS) -->
                     <div class="product-row row gx-2 align-items-center">
                         <div class="col-md-5">
                             <select class="form-select product-select" name="product_id[]" required>
                                 <option value="">Select Product</option>
-                                <!-- Options populated by JS -->
                             </select>
                         </div>
                         <div class="col-md-2">
@@ -153,12 +177,12 @@
 {% endblock %}
 
 {% block scripts %}
+{# Your existing JavaScript block should remain largely the same. No changes needed there for this specific feature. #}
 <script>
     console.log("--- ADD TRANSACTION PAGE SCRIPT BLOCK LOADED ---"); 
 
 document.addEventListener('DOMContentLoaded', function() {
     console.log("--- DOMContentLoaded event fired ---");
-    // ... (const declarations for DOM elements are here, inside DOMContentLoaded) ...
     const productItemsContainer = document.getElementById('productItemsContainer');
     const addProductRowBtn = document.getElementById('addProductRowBtn');
     const productRowTemplateEl = document.getElementById('productRowTemplate');
@@ -173,145 +197,108 @@ document.addEventListener('DOMContentLoaded', function() {
     
     const customerSelectionTypeEl = document.getElementById('customer_selection_type');
     const existingCustomerSectionEl = document.getElementById('existingCustomerSection');
-    const newCustomerNameSectionEl = document.getElementById('newCustomerNameSection');
+    const newCustomerNameSectionEl = document.getElementById('newCustomerNameSection'); // This ID is for the whole new customer block
     const customerIdSelectEl = document.getElementById('customer_id');
-    const newCustomerNameInputEl = document.getElementById('new_customer_name_field');
+    const newCustomerNameInputEl = document.getElementById('new_customer_name_field'); // The name input field
+
+    // New optional field elements for new customer
+    const newCustomerPhoneInputEl = document.getElementById('new_customer_phone');
+    const newCustomerEmailInputEl = document.getElementById('new_customer_email');
+    const newCustomerAddressInputEl = document.getElementById('new_customer_address');
+
     const addTransactionFormEl = document.getElementById('addTransactionForm');
 
-    // --- Data Store ---
     let allAvailableProducts = [];
-    console.log("--- JS DEBUG: Product Loading ---");
     if (productsDataStoreElement) {
-        console.log("'productsDataStore' element FOUND.");
         let rawDataAttrString = productsDataStoreElement.getAttribute('data-products'); 
-        console.log("1. Raw 'data-products' attribute string from getAttribute():", rawDataAttrString);
-
         if (rawDataAttrString) {
             let dataToParse = rawDataAttrString.trim(); 
-            console.log("2. String after initial trim():", dataToParse);
-            if (dataToParse.length > 0) {
-                console.log("   Char code of first char:", dataToParse.charCodeAt(0));
-                console.log("   Char code of last char:", dataToParse.charCodeAt(dataToParse.length - 1));
-            }
-
-            // Aggressive cleaning: Find the first '[' and last ']'
             const firstBracket = dataToParse.indexOf('[');
             const lastBracket = dataToParse.lastIndexOf(']');
-
-            console.log("DEBUG: indexOf '[':", firstBracket, "lastIndexOf ']':", lastBracket);
-
             if (firstBracket !== -1 && lastBracket !== -1 && lastBracket > firstBracket) {
                 dataToParse = dataToParse.substring(firstBracket, lastBracket + 1);
-                console.log("3. String after extracting content between first '[' and last ']':", dataToParse);
-            } else {
-                console.warn("3. Could not reliably find '[' and ']' to extract JSON array/object. Will try to parse the trimmed string as is, but it might fail if it contains non-JSON artifacts like outer parentheses. Trimmed string was:", dataToParse);
-                // If we couldn't find brackets, but the string still has outer parens, let's try removing those as a last resort.
-                // This is for the specific "([{...}])" case if indexOf/lastIndexOf somehow missed the brackets.
-                if (dataToParse.startsWith('(') && dataToParse.endsWith(')')) {
-                    let innerContent = dataToParse.substring(1, dataToParse.length - 1).trim();
-                    if ((innerContent.startsWith('[') && innerContent.endsWith(']')) || (innerContent.startsWith('{') && innerContent.endsWith('}'))) {
-                        dataToParse = innerContent;
-                        console.log("3b. Fallback: String after removing simple outer parentheses:", dataToParse);
-                    }
-                }
             }
-            
-            // Optional: Final trim and check for single quotes if they are now outermost
-            // This is less likely to be needed if the bracket extraction worked.
-            dataToParse = dataToParse.trim(); // Trim again after substring operations
-            if (dataToParse.startsWith("'") && dataToParse.endsWith("'")) {
-                dataToParse = dataToParse.substring(1, dataToParse.length - 1).trim();
-                console.log("4. String after attempting to remove outer single quotes (if any):", dataToParse);
-            }
-            
-            console.log("5. Final string before JSON.parse:", dataToParse);
-
             if (dataToParse && dataToParse.trim() !== "" && dataToParse.trim() !== "[]") {
                 try {
                     const parsedProducts = JSON.parse(dataToParse);
-                    console.log("6. Parsed products:", parsedProducts);
                     if (Array.isArray(parsedProducts)) {
                         allAvailableProducts = parsedProducts;
-                        console.log("SUCCESS: 'allAvailableProducts' array populated:", allAvailableProducts);
                     } else {
-                        console.error("ERROR: Parsed data is NOT an array. Data was:", parsedProducts);
-                         allAvailableProducts = []; // Ensure it's an array on error
+                         allAvailableProducts = []; 
                     }
                 } catch (e) {
-                    console.error("ERROR: Failed to JSON.parse the string. Error:", e);
-                    console.error("String that failed parsing was:", dataToParse);
-                    allAvailableProducts = []; // Ensure it's an array on error
+                    console.error("ERROR: Failed to JSON.parse the string. Error:", e, "String:", dataToParse);
+                    allAvailableProducts = []; 
                 }
             } else {
-                console.warn("WARNING: Data string is empty or '[]' after cleaning. No products to load.");
-                allAvailableProducts = []; // Ensure it's an array
+                allAvailableProducts = []; 
             }
         } else {
-            console.warn("WARNING: 'data-products' attribute is null or empty. No products to load.");
-            allAvailableProducts = []; // Ensure it's an array
+            allAvailableProducts = []; 
         }
     } else {
         console.error("CRITICAL ERROR: 'productsDataStore' div element NOT FOUND.");
-        allAvailableProducts = []; // Ensure it's an array
+        allAvailableProducts = []; 
     }
-    console.log("Final 'allAvailableProducts' before populating selects:", allAvailableProducts);
-    console.log("--- END JS DEBUG: Product Loading ---");
 
-    // ... (rest of your JavaScript functions: formatUgxJS, toggleCustomerInput, populateProductSelect, etc. ) ...
-    // ... (Make sure they are all defined WITHIN this DOMContentLoaded listener) ...
-
-    // --- Utility Functions (All defined inside DOMContentLoaded) ---
     const formatUgxJS = (value) => {
         const numValue = parseFloat(value);
         if (isNaN(numValue)) return 'UGX 0';
         return `UGX ${numValue.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
     };
 
-    // --- Customer Input Logic ---
     function toggleCustomerInput() {
         if (!customerSelectionTypeEl || !existingCustomerSectionEl || !newCustomerNameSectionEl || !customerIdSelectEl || !newCustomerNameInputEl) {
             return;
         }
         const selectionType = customerSelectionTypeEl.value;
-        newCustomerNameInputEl.name = ""; 
-        customerIdSelectEl.name = "customer_id"; 
-        existingCustomerSectionEl.style.display = (selectionType === 'existing') ? 'block' : 'none';
-        newCustomerNameSectionEl.style.display = (selectionType === 'new') ? 'block' : 'none';
-        if (selectionType === 'new') {
-            customerIdSelectEl.value = ''; 
-            customerIdSelectEl.name = "";  
-            newCustomerNameInputEl.name = "new_customer_name_field"; 
-        } else if (selectionType === 'existing') {
-             newCustomerNameInputEl.value = '';
-        } else { 
-            customerIdSelectEl.value = '';
-            newCustomerNameInputEl.value = '';
+        
+        existingCustomerSectionEl.style.display = 'none';
+        newCustomerNameSectionEl.style.display = 'none'; // Hide the whole new customer block by default
+        
+        // Disable inputs by default to prevent submission if not visible/intended
+        if (customerIdSelectEl) customerIdSelectEl.disabled = true;
+        if (newCustomerNameInputEl) newCustomerNameInputEl.disabled = true;
+        if (newCustomerPhoneInputEl) newCustomerPhoneInputEl.disabled = true;
+        if (newCustomerEmailInputEl) newCustomerEmailInputEl.disabled = true;
+        if (newCustomerAddressInputEl) newCustomerAddressInputEl.disabled = true;
+
+
+        if (selectionType === 'existing') {
+            existingCustomerSectionEl.style.display = 'block';
+            if (customerIdSelectEl) customerIdSelectEl.disabled = false;
+            if (newCustomerNameInputEl) newCustomerNameInputEl.value = ''; // Clear new customer name if switching
+        } else if (selectionType === 'new') {
+            newCustomerNameSectionEl.style.display = 'block'; // Show the whole new customer block
+            if (newCustomerNameInputEl) newCustomerNameInputEl.disabled = false;
+            if (newCustomerPhoneInputEl) newCustomerPhoneInputEl.disabled = false;
+            if (newCustomerEmailInputEl) newCustomerEmailInputEl.disabled = false;
+            if (newCustomerAddressInputEl) newCustomerAddressInputEl.disabled = false;
+            if (customerIdSelectEl) customerIdSelectEl.value = ''; // Clear existing customer selection
+        } else { // walk_in or other
+            if (customerIdSelectEl) customerIdSelectEl.value = '';
+            if (newCustomerNameInputEl) newCustomerNameInputEl.value = '';
+            // Also clear optional fields if switching away from 'new'
+            if (newCustomerPhoneInputEl) newCustomerPhoneInputEl.value = '';
+            if (newCustomerEmailInputEl) newCustomerEmailInputEl.value = '';
+            if (newCustomerAddressInputEl) newCustomerAddressInputEl.value = '';
         }
     }
 
-    // --- Product Row & Totals Logic ---
+
     function populateProductSelect(selectElement, selectedCategoryIdValue = "") {
-        if (!selectElement) {
-            console.error("[populateProductSelect] Called with null selectElement.");
-            return;
-        }
+        if (!selectElement) return;
         const currentSelectedProductId = selectElement.value; 
         selectElement.innerHTML = '<option value="">Select Product</option>'; 
         
-        if (!Array.isArray(allAvailableProducts)) {
-            console.error("[populateProductSelect] allAvailableProducts is not an array:", allAvailableProducts);
-            return; // Exit if product data is not available or not an array
-        }
+        if (!Array.isArray(allAvailableProducts)) return;
 
         const filteredProducts = selectedCategoryIdValue && selectedCategoryIdValue !== ""
             ? allAvailableProducts.filter(p => String(p.category_id) === String(selectedCategoryIdValue))
             : allAvailableProducts;
 
         filteredProducts.forEach(p => {
-            if (!p || typeof p !== 'object' || !p.id || !p.name) { // Added check for p itself and type
-                console.error("[populateProductSelect] Product is missing ID or Name, or is not an object:", p);
-                return; 
-            }
+            if (!p || typeof p !== 'object' || !p.id || !p.name) return; 
             const opt = document.createElement('option');
             opt.value = p.id;
             const uomText = p.unit_of_measure ? ` (${p.unit_of_measure})` : '';
@@ -355,7 +342,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 const quantityInput = row.querySelector('.quantity-input');
                 if (productSelect && quantityInput && productSelect.value) {
                     const selectedOption = productSelect.options[productSelect.selectedIndex];
-                    if (selectedOption && selectedOption.dataset.price) { // Check if selectedOption and its dataset.price exist
+                    if (selectedOption && selectedOption.dataset.price) {
                         const price = parseFloat(selectedOption.dataset.price) || 0;
                         const quantity = parseInt(quantityInput.value) || 0;
                         if (price > 0 && quantity > 0) {
@@ -393,14 +380,12 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    // --- Event Handlers & Initializations ---
-    console.log("--- Initializing Event Handlers & Page Setup ---");
     if (customerSelectionTypeEl) { customerSelectionTypeEl.addEventListener('change', toggleCustomerInput); toggleCustomerInput(); } 
     if (addProductRowBtn) { addProductRowBtn.addEventListener('click', function() { 
-            if (!productRowTemplateEl || !productRowTemplateEl.content) { console.error("Product row template or its content not found!"); return; }
+            if (!productRowTemplateEl || !productRowTemplateEl.content) { return; }
             const templateContent = productRowTemplateEl.content.cloneNode(true);
             const newRowDiv = templateContent.querySelector('.product-row');
-            if (!newRowDiv) { console.error("Cloned row div not found in template content!"); return;}
+            if (!newRowDiv) { return;}
             const newProductSelect = newRowDiv.querySelector('.product-select');
             if (newProductSelect) {
                 populateProductSelect(newProductSelect, productItemCategoryFilterEl ? productItemCategoryFilterEl.value : "");
@@ -427,7 +412,6 @@ document.addEventListener('DOMContentLoaded', function() {
 
     if (productItemsContainer) {
         const initialProductRows = productItemsContainer.querySelectorAll('.product-row');
-        console.log(`Found ${initialProductRows.length} initial product rows to populate.`);
         initialProductRows.forEach((row, index) => {
             const productSelect = row.querySelector('.product-select');
             if (productSelect) {
@@ -442,8 +426,6 @@ document.addEventListener('DOMContentLoaded', function() {
         if (initialProductRows.length > 0) { 
             calculateAllTotals(); 
         }
-    } else {
-        console.warn("productItemsContainer not found for initializing rows.");
     }
 
     if (addTransactionFormEl) { addTransactionFormEl.addEventListener('submit', function(event) { 
@@ -461,8 +443,6 @@ document.addEventListener('DOMContentLoaded', function() {
                     hasAtLeastOneProduct = true; const quantity = parseInt(quantityInput.value);
                     const selectedOption = productSelect.options[productSelect.selectedIndex];
                      if (!selectedOption || !selectedOption.dataset.stock || !selectedOption.dataset.name) {
-                        console.warn("Missing data attributes on selected product option for validation.", selectedOption);
-                        // Potentially skip validation for this row or handle as an error
                         return; 
                     }
                     const stock = parseInt(selectedOption.dataset.stock); const productName = selectedOption.dataset.name;
@@ -482,8 +462,22 @@ document.addEventListener('DOMContentLoaded', function() {
                     formIsValid = false; if (!alertMessage) alertMessage = 'Please select at least one product for the transaction.';
                  }
             }
+
+            // New Customer Name Validation
+            if (customerSelectionTypeEl && customerSelectionTypeEl.value === 'new') {
+                if (!newCustomerNameInputEl || newCustomerNameInputEl.value.trim() === '') {
+                    formIsValid = false;
+                    if (!alertMessage) alertMessage = "New Customer Name is required.";
+                    else alertMessage += "\nNew Customer Name is required.";
+                    if (newCustomerNameInputEl) newCustomerNameInputEl.classList.add('is-invalid');
+                } else {
+                    if (newCustomerNameInputEl) newCustomerNameInputEl.classList.remove('is-invalid');
+                }
+            }
+
+
             if (!formIsValid) {
-                event.preventDefault(); console.warn("[Form Submit] Validation FAILED:", alertMessage);
+                event.preventDefault(); 
                 alert(alertMessage.trim() || 'Please correct the errors in the product items.'); return;
             }
             const submitBtn = document.getElementById('saveTransactionBtn');
