@@ -1092,7 +1092,6 @@ def employees():
         return redirect(url_for('dashboard'))
 
     # --- Authorization Check: Only Admins ---
-    # (Your existing authorization check remains here)
     current_user_session = session.get('user')
     if not current_user_session or 'id' not in current_user_session:
         flash("Authentication error.", "danger")
@@ -1101,53 +1100,36 @@ def employees():
     auth_user_id = current_user_session.get('id')
     user_is_admin = False
     try:
-        # Check the role from public.users table
-        role_response = supabase.table('users').select('role').eq('auth_user_id', auth_user_id).maybe_single().execute()
-        if role_response.data and role_response.data.get('role') == 'admin':
+        response = supabase.table('users').select('role').eq('auth_user_id', auth_user_id).maybe_single().execute()
+        if response.data and response.data.get('role') == 'admin':
             user_is_admin = True
-    except Exception as e_role:
-        print(f"ERROR: Could not perform role check query for employees page access: {e_role}")
-        user_is_admin = False # Default to not admin on error
+    except Exception as e:
+        print(f"ERROR: Could not perform role check query for auth_id {auth_user_id}: {e}")
+        user_is_admin = False
 
     if not user_is_admin:
         flash("You do not have permission to view this page.", "warning")
         return redirect(url_for('dashboard'))
     # --- End Authorization Check ---
 
+    # --- Fetch Employee Data and Activity using RPC ---
     try:
-        # Directly query the users table, similar to the /users route
-        # You might want to filter by a specific role if "employees" are a subset of "users"
-        # For now, let's assume all users are potential employees for display purposes on this page
-        response = supabase.table('users') \
-            .select('id, auth_user_id, first_name, last_name, email, role') \
-            .order('role', desc=True) \
-            .order('last_name') \
-            .order('first_name') \
-            .execute()
-        
-        employees_data = []
-        if response.data:
-            for user_profile in response.data:
-                # If you want to add transaction count here, you'd do another query per user (N+1)
-                # For simplicity now, we'll omit it or set to 0
-                employees_data.append({
-                    'id': user_profile.get('id'), # integer id from public.users
-                    'auth_user_id': user_profile.get('auth_user_id'),
-                    'first_name': user_profile.get('first_name'),
-                    'last_name': user_profile.get('last_name'),
-                    'email': user_profile.get('email'),
-                    'role': user_profile.get('role'),
-                    'transaction_count': 0 # Placeholder - RPC was doing this
-                })
-        
+        # Call the database function
+        response = supabase.rpc('get_employees_with_activity').execute() # Make sure function name matches exactly
+        employees_data = response.data if response.data else []
+
+        # The sorting (admins first, then name) is now handled by the database function
+
         return render_template('employees.html', employees=employees_data)
 
     except Exception as e:
-        print(f"Error fetching employees list directly: {type(e).__name__} - {e}")
-        import traceback
-        traceback.print_exc()
-        flash("Could not load employee data due to a server error.", "danger")
-        return render_template('employees.html', employees=[])
+        print(f"Error fetching employees list via RPC: {e}")
+        # You might want to check if the error is specifically because the function doesn't exist
+        if "relation \"get_employees_with_activity\" does not exist" in str(e):
+             flash("Application error: Required database function is missing. Please contact support.", "danger")
+        else:
+            flash("Could not load employee data due to a server error.", "danger")
+        return render_template('employees.html', employees=[]) # Render page with empty list on error
 # --- END OF EMPLOYEES ROUTE ---
 
 
