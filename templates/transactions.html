@@ -33,7 +33,9 @@
     .receipt-items th:nth-child(2), .receipt-items td:nth-child(2) { text-align: center; } /* Qty center */
     .receipt-items th:nth-child(3), .receipt-items td:nth-child(3) { text-align: right; } /* Price right */
     .receipt-items th:last-child, .receipt-items td:last-child { text-align: right; } /* Total right */
-    .receipt-total { border-top: 1px dashed #000; margin-top: 10px; padding-top: 10px; font-weight: bold; font-size: 11pt; }
+    .receipt-summary { border-top: 1px dashed #000; margin-top: 10px; padding-top: 10px; font-size: 10pt; } /* Changed from receipt-total */
+    .receipt-summary p { margin: 2px 0; display: flex; justify-content: space-between; }
+    .receipt-summary p.grand-total strong { font-size: 11pt; } /* Make grand total slightly bigger */
     hr.receipt-hr { border:0; border-top: 1px dashed #000; margin: 5px 0;}
 </style>
 {% endblock %}
@@ -57,11 +59,11 @@
                 <label for="endDate" class="form-label">To Date</label>
                 <input type="date" class="form-control form-control-sm" id="endDate" name="end_date" value="{{ end_date_filter or '' }}">
             </div>
-            <div class="col-md-4"> {# Increased width for customer search #}
+            <div class="col-md-4">
                 <label for="searchCustomer" class="form-label">Customer Name / Txn Code</label>
                 <input type="text" class="form-control form-control-sm" id="searchCustomer" name="search_term" placeholder="Search..." value="{{ search_term_filter or '' }}">
             </div>
-            <div class="col-md-2 d-flex align-items-end"> {# Adjusted width #}
+            <div class="col-md-2 d-flex align-items-end">
                 <button type="submit" class="btn btn-primary btn-sm w-100" id="applyFiltersBtn">
                     <i class="bi bi-funnel-fill"></i> Apply Filters
                 </button>
@@ -90,7 +92,7 @@
                     <tr>
                         <td>{{ txn.transaction_code }}</td>
                         <td>{{ txn.date }}</td>
-                        <td>{{ txn.customer_name }}</td> {# Will display name or "Walk-in/N/A" #}
+                        <td>{{ txn.customer_name }}</td>
                         <td>{{ txn.employee_name }}</td>
                         <td>{{ txn.payment_method }}</td>
                         <td class="text-end">{{ format_ugx(txn.total) }}</td>
@@ -112,7 +114,7 @@
                     {% endfor %}
                 {% else %}
                 <tr>
-                    <td colspan="9" class="text-center">No transactions found matching your criteria.</td> {# colspan is now 9 #}
+                    <td colspan="9" class="text-center">No transactions found matching your criteria.</td>
                 </tr>
                 {% endif %}
             </tbody>
@@ -147,6 +149,13 @@
 document.addEventListener('DOMContentLoaded', function() {
     const receiptModal = new bootstrap.Modal(document.getElementById('receiptModal'));
 
+    // Helper to format UGX consistently
+    const formatUgxReceipt = (value) => {
+        const num = parseFloat(value);
+        if (isNaN(num)) return '0'; // Return plain number for receipt
+        return num.toLocaleString('en-UG', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+    };
+
     document.querySelectorAll('.view-receipt-btn').forEach(button => {
         button.addEventListener('click', async function() {
             const transactionId = this.dataset.txnId;
@@ -166,7 +175,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         <p>Your Town, Your Street</p>
                         <p>Tel: 123-456-7890</p>
                         <hr class="receipt-hr">
-                        <p><strong>RECEIPT</strong></p>
+                        <p><strong>OFFICIAL RECEIPT</strong></p>
                     </div>
                     <div class="receipt-details">
                         <p><strong>Receipt #:</strong> ${txnDetails.transaction_code}</p>
@@ -178,34 +187,39 @@ document.addEventListener('DOMContentLoaded', function() {
                     <table class="receipt-items">
                         <thead>
                             <tr>
-                                <th style="width:50%;">Item</th>
-                                <th style="text-align:center;">Qty</th>
-                                <th style="text-align:right;">Price</th>
-                                <th style="text-align:right;">Subtotal</th>
+                                <th style="width:45%;">Item</th>
+                                <th style="text-align:center; width:15%;">Qty</th>
+                                <th style="text-align:right; width:20%;">Price</th>
+                                <th style="text-align:right; width:20%;">Subtotal</th>
                             </tr>
                         </thead>
                         <tbody>`;
                 
                 if (txnDetails.items && txnDetails.items.length > 0) {
                     txnDetails.items.forEach(item => {
-                        const itemTotal = item.quantity * item.price;
+                        // const itemTotal = item.quantity * item.price; // Use sub_total from DB if available
+                        const itemSubTotal = parseFloat(item.sub_total) || (parseFloat(item.quantity) * parseFloat(item.price));
                         receiptHtml += `
                             <tr>
                                 <td>${item.product_name}</td>
                                 <td style="text-align:center;">${item.quantity}</td>
-                                <td style="text-align:right;">${item.price.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 0})}</td>
-                                <td style="text-align:right;">${itemTotal.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 0})}</td>
+                                <td style="text-align:right;">${formatUgxReceipt(item.price)}</td>
+                                <td style="text-align:right;">${formatUgxReceipt(itemSubTotal)}</td>
                             </tr>`;
                     });
                 } else {
-                    receiptHtml += '<tr><td colspan="4" style="text-align:center;">No items recorded for this transaction.</td></tr>';
+                    receiptHtml += '<tr><td colspan="4" style="text-align:center; padding: 10px 0;">No items recorded for this transaction.</td></tr>';
                 }
                 
                 receiptHtml += `
                         </tbody>
                     </table>
-                    <div class="receipt-total text-end">
-                        <p><strong>TOTAL: UGX ${txnDetails.total_amount.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 0})}</strong></p>
+                    <div class="receipt-summary">
+                        <p><span>Sub-Total:</span> <span>UGX ${formatUgxReceipt(txnDetails.total_amount)}</span></p>
+                        <p><span>Amount Paid:</span> <span>UGX ${formatUgxReceipt(txnDetails.amount_paid)}</span></p>
+                        <p class="grand-total"><strong>Balance Due:</strong> <strong>UGX ${formatUgxReceipt(txnDetails.balance_due)}</strong></p>
+                        <hr class="receipt-hr" style="margin-top: 5px; margin-bottom: 5px;">
+                        <p class="grand-total"><strong>Total Bill:</strong> <strong>UGX ${formatUgxReceipt(txnDetails.total_amount)}</strong></p>
                     </div>
                     ${txnDetails.notes ? `<div style="font-size:0.8em; margin-top:10px; border-top: 1px dashed #ccc; padding-top:5px;"><strong>Notes:</strong> ${txnDetails.notes.replace(/\n/g, '<br>')}</div>` : ''}
                     <div class="receipt-footer" style="margin-top:15px;">
@@ -233,7 +247,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 table { width: 100%; border-collapse: collapse; margin: 8px 0; } \
                 td, th { padding: 3px 1px; border-bottom: 1px dashed #999; text-align: left; font-size: 9pt; } \
                 th { font-weight: bold; border-bottom: 1px solid #333; } \
-                th:nth-child(1), td:nth-child(1) { width: 50%; } \
+                th:nth-child(1), td:nth-child(1) { width: 45%; } \
                 th:nth-child(2), td:nth-child(2) { text-align: center; width: 15%; } \
                 th:nth-child(3), td:nth-child(3) { text-align: right; width: 20%;} \
                 th:last-child, td:last-child { text-align: right; width: 20%;} \
@@ -241,7 +255,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 .receipt-header h4 { margin: 1px 0; font-size: 13pt;} \
                 .receipt-header p { margin: 1px 0; font-size: 8pt;} \
                 .receipt-details p { margin: 2px 0; font-size: 9pt; } \
-                .receipt-total { text-align: right; font-weight: bold; margin-top:8px; border-top: 1px double #000; padding-top:5px; font-size: 11pt;} \
+                .receipt-summary { margin-top: 8px; border-top: 1px double #000; padding-top:5px; font-size: 10pt;} \
+                .receipt-summary p { margin: 2px 0; display: flex; justify-content: space-between; } \
+                .receipt-summary p.grand-total strong { font-size: 11pt; } \
                 hr.receipt-hr {border:0; border-top: 1px dashed #000; margin: 5px 0;} \
                 @page { size: auto; margin: 5mm; } \
                 @media print { \

@@ -697,57 +697,109 @@ def edit_transaction(txn_id):
 def transaction_receipt_details(txn_id):
     if not check_supabase():
         return jsonify({"error": "Database connection failed"}), 500
+    
+    active_supabase_client = supabase_admin if check_supabase_admin() and supabase_admin else supabase
+    if not active_supabase_client:
+        print("CRITICAL: No Supabase client available for transaction_receipt_details.")
+        return jsonify({"error": "Database client configuration error"}), 500
+
     try:
-        response = supabase.table('transactions') \
+        print(f"--- DEBUG: Fetching receipt details for txn_id: {txn_id} using {'ADMIN' if active_supabase_client == supabase_admin else 'REGULAR'} client ---")
+        
+        response = active_supabase_client.table('transactions') \
             .select('''
+                id,
                 transaction_code,
                 date,
                 total_amount,
+                amount_paid,
+                balance_due,
                 payment_method,
                 notes,
                 customer:customers ( name ),
-                employee_creator:created_by_user_id ( first_name, last_name ),
-                items:transaction_items ( quantity, price, product:products (name) )
+                employee_creator:users!created_by_user_id ( auth_user_id, first_name, last_name ), 
+                transaction_items ( 
+                    quantity,
+                    price,
+                    sub_total,
+                    product:products ( name )
+                )
             ''') \
             .eq('id', txn_id) \
             .maybe_single() \
             .execute()
 
-        if not response.data:
+        # For `maybe_single()`:
+        # - If data is found, response.data contains the record.
+        # - If no data is found, response.data is None.
+        # - If PostgREST error, an exception (e.g., PostgrestAPIError) is raised.
+
+        print(f"--- DEBUG: Supabase response object type: {type(response)} ---")
+        print(f"--- DEBUG: Supabase response data: {response.data} ---")
+        # No direct '.error' attribute on SingleAPIResponse. Errors are raised as exceptions.
+
+        if response.data is None: # Handles case where transaction_id is not found
             return jsonify({"error": "Transaction not found"}), 404
 
         txn = response.data
-        customer_info = txn.get('customer')
-        customer_name = customer_info['name'] if customer_info else 'Walk-in/N/A'
         
-        employee_info = txn.get('employee_creator')
-        employee_name = f"{employee_info['first_name']} {employee_info['last_name']}" if employee_info else 'System'
+        print(f"--- DEBUG: Raw 'transaction_items' from txn object: {txn.get('transaction_items')} ---")
 
+        customer_info = txn.get('customer')
+        customer_name = customer_info['name'] if customer_info and isinstance(customer_info, dict) else 'Walk-in/N/A'
+        
+        employee_creator_info = txn.get('employee_creator')
+        employee_name = 'System'
+        if employee_creator_info and isinstance(employee_creator_info, dict):
+            first = employee_creator_info.get('first_name', '')
+            last = employee_creator_info.get('last_name', '')
+            if first or last:
+                employee_name = f"{first} {last}".strip()
+        
         items_list = []
-        if txn.get('items'):
-            for item_data in txn['items']:
-                product_info = item_data.get('product')
+        raw_items = txn.get('transaction_items') 
+        if raw_items and isinstance(raw_items, list):
+            for item_data in raw_items:
+                product_info = item_data.get('product') 
+                
+                print(f"--- DEBUG: Processing item_data: {item_data} ---")
+                print(f"--- DEBUG: Product_info within item_data: {product_info} ---")
+
                 items_list.append({
-                    "product_name": product_info['name'] if product_info else "Unknown Item",
-                    "quantity": item_data['quantity'],
-                    "price": item_data['price']
+                    "product_name": product_info['name'] if product_info and isinstance(product_info, dict) and product_info.get('name') else "Unknown Item",
+                    "quantity": item_data.get('quantity', 0),
+                    "price": item_data.get('price', 0.0), 
+                    "sub_total": item_data.get('sub_total', 0.0) 
                 })
         
         receipt_data = {
             "transaction_code": txn['transaction_code'],
-            "date": txn['date'], # Will be formatted by JS
+            "date": txn['date'], 
             "total_amount": txn['total_amount'],
+            "amount_paid": txn.get('amount_paid', 0.0),    
+            "balance_due": txn.get('balance_due', 0.0),    
             "payment_method": txn.get('payment_method', 'N/A'),
             "notes": txn.get('notes', ''),
             "customer_name": customer_name,
             "employee_name": employee_name,
             "items": items_list
         }
+        print(f"--- DEBUG: Final receipt_data being sent: {receipt_data} ---")
         return jsonify(receipt_data)
 
-    except Exception as e:
-        print(f"Error fetching receipt details for txn_id {txn_id}: {e}")
-        return jsonify({"error": "Could not load receipt details"}), 500
+    except PostgrestAPIError as e_pg: # Catch specific PostgREST errors
+        print(f"PostgREST APIError fetching receipt details for txn_id {txn_id}: {e_pg}")
+        print(f"Error details: code={e_pg.code}, message={e_pg.message}, details={e_pg.details}, hint={e_pg.hint}")
+        error_message = f"Database error: {e_pg.message}"
+        if e_pg.details:
+            error_message += f" (Details: {e_pg.details})"
+        return jsonify({"error": error_message}), getattr(e_pg, 'status_code', 500) # Use status_code from exception if available
+
+    except Exception as e: # Catch other Python errors
+        print(f"Generic error fetching receipt details for txn_id {txn_id}: {type(e).__name__} - {e}")
+        import traceback
+        traceback.print_exc() 
+        return jsonify({"error": "Could not load receipt details due to an unexpected server error."}), 500
 # --- ADD EMPLOYEES ROUTE ---
 # app.py
 # ... (other imports)
@@ -781,14 +833,13 @@ def add_transaction():
 
     form_data_on_error = {} 
     current_user_session_data = session.get('user', {})
-    current_auth_id_from_session = current_user_session_data.get('id')
+    # current_auth_id_from_session = current_user_session_data.get('id') # Not directly used here, current_user_auth_id is fetched later
 
     if request.method == 'POST':
         # Store all form fields for potential repopulation on error
         form_data_on_error['customer_selection_type'] = request.form.get('customer_selection_type')
         form_data_on_error['selected_customer_id'] = request.form.get('customer_id')
         form_data_on_error['new_customer_name_text'] = request.form.get('new_customer_name_field', '').strip()
-        # MODIFIED: Get new optional customer fields
         form_data_on_error['new_customer_phone_text'] = request.form.get('new_customer_phone', '').strip()
         form_data_on_error['new_customer_email_text'] = request.form.get('new_customer_email', '').strip()
         form_data_on_error['new_customer_address_text'] = request.form.get('new_customer_address', '').strip()
@@ -796,11 +847,14 @@ def add_transaction():
         form_data_on_error['selected_payment_method'] = request.form.get('payment_method')
         form_data_on_error['notes_text'] = request.form.get('notes', '').strip()
         form_data_on_error['amount_paid_val'] = request.form.get('amount_paid')
+        # It's good practice to also store product item data if you want to repopulate those on error,
+        # but that's more complex and not part of this specific fix.
 
         current_user_auth_id = session.get('user', {}).get('id')
+        print(f"--- DEBUG: current_user_auth_id FOR TRANSACTION HEADER & ITEMS: {current_user_auth_id} (Type: {type(current_user_auth_id)}) ---")
         if not current_user_auth_id:
             flash("Authentication error: User session not found. Please log in again.", "danger")
-            request.form_data_on_error = form_data_on_error # Save form data
+            # request.form_data_on_error = form_data_on_error # No need to set this on request, pass directly
             return render_template_add_transaction_form(form_data_on_error)
 
         try:
@@ -851,18 +905,25 @@ def add_transaction():
             for i in range(len(valid_product_ids)):
                 product_id = valid_product_ids[i]
                 quantity = valid_quantities[i]
+
                 product_res = supabase.table('products').select('id, name, price, stock').eq('id', product_id).maybe_single().execute()
                 if not product_res.data:
                     raise ValueError(f"Product with ID {product_id} not found. It may have been removed.")
+                
                 db_product = product_res.data
                 db_price = Decimal(str(db_product['price']))
                 db_stock = int(db_product['stock'])
+
                 if quantity > db_stock:
                     raise ValueError(f"Insufficient stock for '{db_product['name']}'. Requested: {quantity}, Available: {db_stock}.")
+
                 item_subtotal = db_price * Decimal(quantity)
                 processed_items.append({
-                    'product_id': db_product['id'], 'name': db_product['name'], 'quantity': quantity,
-                    'price_at_sale': db_price, 'item_subtotal': item_subtotal
+                    'product_id': db_product['id'],
+                    'name': db_product['name'],
+                    'quantity': quantity,
+                    'price_at_sale': db_price,
+                    'item_subtotal': item_subtotal
                 })
                 grand_total_calculated += item_subtotal
             
@@ -871,35 +932,111 @@ def add_transaction():
 
             customer_id_for_txn = None
             customer_selection_type = request.form.get('customer_selection_type')
+            # Prefer admin client for customer operations if available
+            client_for_customer_ops = supabase_admin if check_supabase_admin() and supabase_admin else supabase
             
             if customer_selection_type == 'new':
                 new_customer_name = request.form.get('new_customer_name_field', '').strip()
-                if not new_customer_name:
-                    raise ValueError("New customer name cannot be empty when 'New Customer' is selected.")
-                
-                # MODIFIED: Get optional customer details
                 new_customer_phone = request.form.get('new_customer_phone', '').strip()
                 new_customer_email = request.form.get('new_customer_email', '').strip()
                 new_customer_address = request.form.get('new_customer_address', '').strip()
 
-                new_customer_data = {'name': new_customer_name}
-                # Add optional fields if they have values
-                if new_customer_phone:
-                    new_customer_data['phone_number'] = new_customer_phone
-                if new_customer_email:
-                    new_customer_data['email'] = new_customer_email
-                if new_customer_address:
-                    new_customer_data['address'] = new_customer_address
-                
-                # Using admin client for customer insert
-                client_for_customer_insert = supabase_admin if check_supabase_admin() and supabase_admin else supabase
-                customer_insert_res = client_for_customer_insert.table('customers').insert(new_customer_data).execute()
+                if not new_customer_name:
+                    raise ValueError("New customer name cannot be empty when 'New Customer' is selected.")
 
-                if not customer_insert_res.data or not customer_insert_res.data[0].get('id'):
-                    error_info = getattr(customer_insert_res, 'error', "Unknown error creating customer.")
-                    db_message = getattr(error_info, 'message', str(error_info)) if error_info else "No specific error message."
-                    raise Exception(f"Failed to create new customer profile: {db_message}")
-                customer_id_for_txn = customer_insert_res.data[0]['id']
+                existing_customer_found = None
+                
+                # Try to find existing customer by phone first
+                if new_customer_phone:
+                    try:
+                        print(f"--- DEBUG: Checking for existing customer by phone: {new_customer_phone} ---")
+                        phone_check_res = client_for_customer_ops.table('customers') \
+                            .select('id, name, email, address') \
+                            .eq('phone_number', new_customer_phone) \
+                            .maybe_single() \
+                            .execute()
+                        if phone_check_res.data:
+                            existing_customer_found = phone_check_res.data
+                            print(f"--- DEBUG: Found existing customer by phone: {existing_customer_found} ---")
+                            flash(f"Customer with phone '{new_customer_phone}' already exists ('{existing_customer_found['name']}'). Using existing profile.", "info")
+                    except Exception as e_check_phone:
+                        print(f"Warning: Error checking existing customer by phone: {e_check_phone}")
+                        # Don't raise, allow to proceed to email check or creation
+
+                # If not found by phone, try by email (only if email is provided)
+                if not existing_customer_found and new_customer_email:
+                    try:
+                        print(f"--- DEBUG: Checking for existing customer by email: {new_customer_email} ---")
+                        email_check_res = client_for_customer_ops.table('customers') \
+                            .select('id, name, phone_number, address') \
+                            .eq('email', new_customer_email) \
+                            .maybe_single() \
+                            .execute()
+                        if email_check_res.data:
+                            existing_customer_found = email_check_res.data
+                            print(f"--- DEBUG: Found existing customer by email: {existing_customer_found} ---")
+                            flash(f"Customer with email '{new_customer_email}' already exists ('{existing_customer_found['name']}'). Using existing profile.", "info")
+                    except Exception as e_check_email:
+                        print(f"Warning: Error checking existing customer by email: {e_check_email}")
+                        # Don't raise, allow to proceed to creation if necessary
+                
+                if existing_customer_found:
+                    customer_id_for_txn = existing_customer_found['id']
+                    # Optional: Update existing customer's details if different.
+                    # Be careful with this logic. For example, only update if new data is provided.
+                    update_payload_existing_customer = {}
+                    if new_customer_name and new_customer_name != existing_customer_found.get('name'):
+                        update_payload_existing_customer['name'] = new_customer_name
+                    
+                    # Update email if new one provided and different, or if old one was null
+                    if new_customer_email and (new_customer_email != existing_customer_found.get('email') or not existing_customer_found.get('email')):
+                        update_payload_existing_customer['email'] = new_customer_email
+                    
+                    # Update address if new one provided and different, or if old one was null
+                    if new_customer_address and (new_customer_address != existing_customer_found.get('address') or not existing_customer_found.get('address')):
+                         update_payload_existing_customer['address'] = new_customer_address
+
+                    # Update phone if new one provided and different (though it was the match key if used)
+                    # This part is tricky if phone was the primary match. Usually, you wouldn't change the key you matched on
+                    # unless you have a more complex identity management system.
+                    # For now, if phone matched, we assume it's correct. If email matched, and a new phone is given, update it.
+                    if not new_customer_phone and existing_customer_found.get('phone_number'): # If input phone is empty, don't nullify existing
+                        pass
+                    elif new_customer_phone and new_customer_phone != existing_customer_found.get('phone_number'):
+                         update_payload_existing_customer['phone_number'] = new_customer_phone
+
+
+                    if update_payload_existing_customer:
+                        try:
+                            print(f"--- DEBUG: Attempting to update existing customer ID {customer_id_for_txn} with payload: {update_payload_existing_customer} ---")
+                            client_for_customer_ops.table('customers').update(update_payload_existing_customer).eq('id', customer_id_for_txn).execute()
+                            flash("Existing customer details updated.", "info")
+                        except Exception as e_update_cust:
+                            print(f"Warning: Failed to update existing customer ({customer_id_for_txn}) details: {e_update_cust}")
+                            flash("Could not update existing customer details. Proceeding with transaction.", "warning")
+
+
+                else: # No existing customer found, create a new one
+                    new_customer_data = {'name': new_customer_name}
+                    # Only add optional fields if they have a non-empty value
+                    if new_customer_phone: new_customer_data['phone_number'] = new_customer_phone
+                    if new_customer_email: new_customer_data['email'] = new_customer_email
+                    if new_customer_address: new_customer_data['address'] = new_customer_address
+                    
+                    print(f"--- DEBUG: Creating new customer with data: {new_customer_data} ---")
+                    customer_insert_res = client_for_customer_ops.table('customers').insert(new_customer_data).execute()
+
+                    if customer_insert_res.data and len(customer_insert_res.data) > 0 and customer_insert_res.data[0].get('id'):
+                        customer_id_for_txn = customer_insert_res.data[0]['id']
+                        flash(f"New customer '{new_customer_name}' created successfully.", "success")
+                    else:
+                        # This will catch the unique constraint violation if our prior checks somehow missed it
+                        # or if the constraint is on a combination of fields not checked.
+                        db_error = getattr(customer_insert_res, 'error', "Unknown error inserting new customer.")
+                        db_message = getattr(db_error, 'message', str(db_error)) if db_error else "No specific error message."
+                        print(f"--- DEBUG: Failed to insert new customer. Response: {customer_insert_res} ---")
+                        raise Exception(f"Failed to create new customer profile: {db_message}")
+
             elif customer_selection_type == 'existing':
                 selected_customer_id_str = request.form.get('customer_id')
                 if not selected_customer_id_str:
@@ -908,17 +1045,23 @@ def add_transaction():
                     customer_id_for_txn = int(selected_customer_id_str)
                 except ValueError:
                     raise ValueError("Invalid existing customer ID.")
+            # Else (walk_in), customer_id_for_txn remains None, which is correct.
+
 
             transaction_code = generate_transaction_code()
             transaction_date = datetime.datetime.now(datetime.timezone.utc).isoformat()
             balance_due_calculated = grand_total_calculated - amount_paid_val
 
             transaction_payload = {
-                'transaction_code': transaction_code, 'date': transaction_date,
-                'total_amount': float(grand_total_calculated), 'payment_method': payment_method,
-                'notes': notes, 'customer_id': customer_id_for_txn,
-                'created_by_user_id': current_user_auth_id,
-                'amount_paid': float(amount_paid_val), 'balance_due': float(balance_due_calculated)
+                'transaction_code': transaction_code,
+                'date': transaction_date,
+                'total_amount': float(grand_total_calculated),
+                'payment_method': payment_method,
+                'notes': notes,
+                'customer_id': customer_id_for_txn,
+                'created_by_user_id': current_user_auth_id, 
+                'amount_paid': float(amount_paid_val),
+                'balance_due': float(balance_due_calculated)
             }
             
             client_for_txn_header = supabase_admin if check_supabase_admin() and supabase_admin else supabase
@@ -927,32 +1070,41 @@ def add_transaction():
             if not insert_txn_res.data or not insert_txn_res.data[0].get('id'):
                 db_error = getattr(insert_txn_res, 'error', "Unknown error inserting transaction.")
                 db_message = getattr(db_error, 'message', str(db_error)) if db_error else "No specific error message."
-                raise Exception(f"Failed to record transaction: {db_message}")
+                raise Exception(f"Failed to record transaction header: {db_message}")
             
             new_transaction_id = insert_txn_res.data[0]['id']
 
             client_for_txn_items = supabase_admin if check_supabase_admin() and supabase_admin else supabase
             for item in processed_items:
                 item_payload = {
-                    'transaction_id': new_transaction_id, 'product_id': item['product_id'],
-                    'quantity': item['quantity'], 'price': float(item['price_at_sale']),
-                    'sub_total': float(item['item_subtotal']), 'created_by_user_id': current_user_auth_id
+                    'transaction_id': new_transaction_id,
+                    'product_id': item['product_id'],
+                    'quantity': item['quantity'],
+                    'price': float(item['price_at_sale']),
+                    'sub_total': float(item['item_subtotal']),
+                    'created_by_user_id': current_user_auth_id 
                 }
                 insert_item_res = client_for_txn_items.table('transaction_items').insert(item_payload).execute()
                 
-                if not insert_item_res.data:
+                if not insert_item_res.data: 
                     db_item_error = getattr(insert_item_res, 'error', f"Failed to add item '{item['name']}' to transaction.")
                     db_item_message = getattr(db_item_error, 'message', str(db_item_error)) if db_item_error else "No specific error message."
                     flash(f"Critical Error: Transaction {transaction_code} header recorded, but failed to add item '{item['name']}'. Error: {db_item_message}. Please verify transaction details.", "danger")
+                    # Consider how to handle partial success - for now, it continues
                 
+                # Stock Update (using regular supabase client, assuming RLS allows updates or it's admin)
                 current_stock_before_update_res = supabase.table('products').select('stock').eq('id', item['product_id']).single().execute()
                 if current_stock_before_update_res.data:
                     current_db_stock = current_stock_before_update_res.data['stock']
                     new_stock_level = current_db_stock - item['quantity']
                     if new_stock_level < 0:
+                        # This ideally should have been caught earlier, but as a failsafe:
                         flash(f"Critical stock error for '{item['name']}' during final update. Stock cannot go negative. Manual correction needed for TXN {transaction_code}.", "danger")
                     else:
-                        update_stock_res = supabase.table('products').update({'stock': new_stock_level, 'updated_at': datetime.datetime.now(datetime.timezone.utc).isoformat()}).eq('id', item['product_id']).execute()
+                        update_stock_res = supabase.table('products').update({
+                            'stock': new_stock_level, 
+                            'updated_at': datetime.datetime.now(datetime.timezone.utc).isoformat()
+                        }).eq('id', item['product_id']).execute()
                         if hasattr(update_stock_res, 'error') and update_stock_res.error:
                              flash(f"Warning: Stock for '{item['name']}' may not have updated correctly for TXN {transaction_code}. Error: {update_stock_res.error.message}", "warning") # type: ignore
                 else:
@@ -963,24 +1115,45 @@ def add_transaction():
 
         except ValueError as ve: 
             flash(str(ve), "danger")
-            request.form_data_on_error = form_data_on_error 
+            # request.form_data_on_error = form_data_on_error # No need, pass directly
         except InvalidOperation as ioe:
             flash("Invalid number format for amount paid. Please use numbers only.", "danger")
-            request.form_data_on_error = form_data_on_error
+            # request.form_data_on_error = form_data_on_error
         except Exception as e: 
+            # This will now catch the unique constraint violation if it still occurs after our checks
+            # (e.g., due to a race condition, or if the constraint is more complex than just phone/email alone)
+            # or any other exception during the process.
+            print(f"Generic error during POST processing: {type(e).__name__} - {e}")
+            # import traceback # Uncomment for server-side debugging
+            # traceback.print_exc() 
+            
             error_message_to_flash = f"An unexpected error occurred: {str(e)}"
-            if hasattr(e, 'message') and isinstance(e.message, dict):
+            # Attempt to parse Supabase/PostgREST error structure
+            if hasattr(e, 'message') and isinstance(e.message, dict) and 'message' in e.message:
+                # This is typical for supabase-py errors wrapping PostgREST errors
                 specific_db_message = e.message.get('message', '')
-                if 'violates row-level security policy' in specific_db_message:
+                details = e.message.get('details', '')
+                code = e.message.get('code', '')
+
+                if 'violates unique constraint' in specific_db_message or code == '23505':
+                    constraint_name_match = re.search(r'constraint "(\w+)"', specific_db_message)
+                    constraint_name = constraint_name_match.group(1) if constraint_name_match else "a unique field"
+                    
+                    field_value_match = re.search(r'Key \((\w+)\)=\(([^)]+)\)', details or specific_db_message)
+                    field_name = field_value_match.group(1) if field_value_match else "value"
+                    field_value = field_value_match.group(2) if field_value_match else "provided"
+
+                    error_message_to_flash = f"The {field_name} '{field_value}' already exists. Please use a different {field_name} or select the existing customer."
+                elif 'violates row-level security policy' in specific_db_message:
                     table_name_match = re.search(r'for table "(\w+)"', specific_db_message)
                     table_name = table_name_match.group(1) if table_name_match else "a table"
                     error_message_to_flash = f"Operation failed due to security policy on {table_name}. Please check permissions or contact admin."
-                elif specific_db_message:
+                elif specific_db_message: # Generic database message
                     error_message_to_flash = f"Database error: {specific_db_message}"
+            
             flash(error_message_to_flash, "danger")
-            request.form_data_on_error = form_data_on_error
+            # request.form_data_on_error = form_data_on_error
         
-    # Pass form_data to the template rendering function for GET or for POST error
     return render_template_add_transaction_form(form_data_on_error)
 
 
