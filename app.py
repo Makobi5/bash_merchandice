@@ -6,6 +6,12 @@ import re
 from functools import wraps
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import letter
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak, KeepInFrame
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib import colors
+from reportlab.lib.units import inch
+from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_RIGHT, TA_JUSTIFY
+from reportlab.lib.pagesizes import letter
 from supabase import create_client, Client
 from supabase.lib.client_options import ClientOptions
 from dotenv import load_dotenv
@@ -22,7 +28,16 @@ from dateutil.relativedelta import relativedelta
 
 # Load environment variables
 load_dotenv('.env')
-
+# PDF Styling Constants
+FONT_NAME_NORMAL = 'Helvetica'
+FONT_NAME_BOLD = 'Helvetica-Bold'
+FONT_PRIMARY_COLOR = colors.HexColor('#2c3e50') # Dark Blue-Gray
+FONT_SECONDARY_COLOR = colors.HexColor('#34495e') # Slightly Lighter Dark Blue-Gray
+FONT_GREY_COLOR = colors.HexColor('#7f8c8d') # Grey
+TABLE_HEADER_COLOR = colors.HexColor('#3498db') # Blue
+TABLE_ROW_LIGHT_COLOR = colors.HexColor('#ecf0f1') # Light Grey
+TABLE_ROW_DARK_COLOR = colors.white
+LINE_COLOR = colors.HexColor('#bdc3c7') # Light Border Grey
 # Initialize Flask app
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.getenv('FLASK_SECRET_KEY')
@@ -149,7 +164,63 @@ def inject_globals():
 
     # --- Return the dictionary for the template context ---
     return dict(user=user_info, format_ugx=format_ugx, now=datetime.datetime.utcnow)
+def format_ugx_for_pdf(value, show_zero_for_none=True): # Added show_zero_for_none
+    if value is None:
+        return "0" if show_zero_for_none else "-" # Option to show '-' for None
+    try:
+        # Ensure value is a number before formatting
+        num_value = float(value)
+        return f"{num_value:,.0f}"
+    except (ValueError, TypeError):
+        return "0" if show_zero_for_none else "-"
+# --- NEW: Header and Footer Function ---
+_REPORT_TITLE_TEXT = "Report" # Global or passed if dynamic
+_COMPANY_NAME = "Bash Merchandise Management"
+_GENERATION_TIMESTAMP = ""
 
+def draw_page_header_footer(canvas, doc):
+    global _REPORT_TITLE_TEXT, _COMPANY_NAME, _GENERATION_TIMESTAMP
+    canvas.saveState()
+    
+    page_width = doc.width + doc.leftMargin + doc.rightMargin
+    header_y_start = doc.pagesize[1] - doc.topMargin # Top of the margin area
+
+    # Company Name - Main Title
+    canvas.setFont(FONT_NAME_BOLD, 16)
+    canvas.setFillColor(FONT_PRIMARY_COLOR)
+    # Position it higher, more towards the page edge, but within margin from text start
+    canvas.drawString(doc.leftMargin, header_y_start + 0.8*inch, _COMPANY_NAME)
+
+
+    # Report Title (e.g., Daily Report - 23 May 2025)
+    canvas.setFont(FONT_NAME_BOLD, 12)
+    canvas.setFillColor(FONT_SECONDARY_COLOR)
+    canvas.drawString(doc.leftMargin, header_y_start + 0.55*inch, _REPORT_TITLE_TEXT)
+    
+    # Generated Timestamp
+    canvas.setFont(FONT_NAME_NORMAL, 8)
+    canvas.setFillColor(FONT_GREY_COLOR)
+    canvas.drawRightString(page_width - doc.rightMargin, header_y_start + 0.55*inch, f"Generated: {_GENERATION_TIMESTAMP}")
+
+    # Header Line - position it below the text content of the header
+    canvas.setStrokeColor(LINE_COLOR)
+    canvas.line(doc.leftMargin, header_y_start + 0.4*inch, page_width - doc.rightMargin, header_y_start + 0.4*inch)
+
+
+    # Footer
+    footer_y_start = doc.bottomMargin # Bottom of the margin area
+    canvas.setFont(FONT_NAME_NORMAL, 9)
+    canvas.setFillColor(FONT_GREY_COLOR)
+    page_num_text = f"Page {doc.page}"
+    canvas.drawCentredString(doc.leftMargin + 0.5 * doc.width, footer_y_start - 0.3*inch, page_num_text)
+    
+    canvas.setStrokeColor(LINE_COLOR)
+    # Footer line above the page number
+    canvas.line(doc.leftMargin, footer_y_start - 0.1*inch, page_width - doc.rightMargin, footer_y_start - 0.1*inch)
+
+    canvas.restoreState()
+
+        
 def login_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
@@ -1392,100 +1463,212 @@ def users():
 @app.route('/api/reports/<period>', methods=['GET'])
 @login_required
 def generate_report_api(period):
+    global _REPORT_TITLE_TEXT, _GENERATION_TIMESTAMP 
+
     if not check_supabase():
         return jsonify({'error': 'Database connection failed'}), 500
 
-    today = datetime.datetime.now(datetime.timezone.utc).date() # Use timezone-aware
-    end_date = today
+    # ... (Date calculation logic remains the same) ...
+    today_utc = datetime.datetime.now(datetime.timezone.utc).date()
+    report_period_display_date = today_utc
 
-    if period == 'daily': start_date = today
-    elif period == 'weekly': start_date = today - datetime.timedelta(days=today.weekday())
-    elif period == 'monthly': start_date = today.replace(day=1)
-    else: return jsonify({'error': 'Invalid report period specified'}), 400
+    if period == 'daily':
+        requested_date_str = request.args.get('date')
+        if requested_date_str:
+            try:
+                report_period_display_date = datetime.datetime.strptime(requested_date_str, '%Y-%m-%d').date()
+            except ValueError:
+                return jsonify({'error': 'Invalid date format for daily report. Use YYYY-MM-DD.'}), 400
+        
+        start_date = report_period_display_date
+        end_date = report_period_display_date
+        report_title_date_str = report_period_display_date.strftime('%d %b %Y')
+        filename_date_part = report_period_display_date.strftime('%Y%m%d')
+        _REPORT_TITLE_TEXT = f"Daily Report - {report_title_date_str}" 
 
-    title_map = {
-        'daily': f"Daily Report - {today.strftime('%d %b %Y')}",
-        'weekly': f"Weekly Report ({start_date.strftime('%d %b')} - {end_date.strftime('%d %b %Y')})",
-        'monthly': f"Monthly Report - {start_date.strftime('%B %Y')}"
-    }
-    title = title_map.get(period)
+    elif period == 'weekly':
+        start_date = today_utc - datetime.timedelta(days=today_utc.weekday())
+        end_date = today_utc 
+        report_period_display_date = end_date
+        report_title_date_str = f"{start_date.strftime('%d %b')} to {end_date.strftime('%d %b %Y')}"
+        filename_date_part = end_date.strftime('%Y%m%d')
+        _REPORT_TITLE_TEXT = f"Weekly Report ({report_title_date_str})" 
+
+    elif period == 'monthly':
+        start_date = today_utc.replace(day=1)
+        end_date = today_utc
+        report_period_display_date = end_date
+        report_title_date_str = start_date.strftime('%B %Y')
+        filename_date_part = end_date.strftime('%Y%m%d')
+        _REPORT_TITLE_TEXT = f"Monthly Report - {report_title_date_str}" 
+    else:
+        return jsonify({'error': 'Invalid report period specified'}), 400
+
+    _GENERATION_TIMESTAMP = datetime.datetime.now().strftime("%d %b %Y, %H:%M:%S") 
 
     start_datetime = datetime.datetime.combine(start_date, datetime.time.min, tzinfo=datetime.timezone.utc)
     end_datetime = datetime.datetime.combine(end_date, datetime.time.max, tzinfo=datetime.timezone.utc)
 
     try:
+        # 1. Fetch Transactions (including amount_paid and balance_due)
         transactions_response = supabase.table('transactions') \
-            .select('date, transaction_code, total_amount, payment_method, customer:customers(name)') \
+            .select('date, transaction_code, total_amount, amount_paid, balance_due, payment_method, customer:customers(name)') \
             .gte('date', start_datetime.isoformat()) \
             .lte('date', end_datetime.isoformat()) \
             .order('date') \
             .execute()
         transactions_for_report = transactions_response.data if transactions_response.data else []
+        print(f"--- DEBUG: Fetched {len(transactions_for_report)} transactions for report. First one: {transactions_for_report[0] if transactions_for_report else 'None'}")
+
+
+        # 2. Fetch Product Sales Summary
+        product_sales_data = []
+        try:
+            rpc_params = {'p_start_date': start_date.isoformat(), 'p_end_date': end_date.isoformat()}
+            product_sales_res = supabase.rpc('get_product_sales_summary_for_period', rpc_params).execute()
+            # Log the raw response from RPC
+            print(f"--- DEBUG: Product Sales RPC response: {product_sales_res}")
+            if hasattr(product_sales_res, 'data') and product_sales_res.data is not None:
+                 product_sales_data = product_sales_res.data
+            else:
+                print(f"--- DEBUG: Product Sales RPC returned no data or data is None. Error (if any): {getattr(product_sales_res, 'error', 'N/A')}")
+
+        except Exception as e_rpc_prod:
+            print(f"Error fetching product sales summary via RPC: {e_rpc_prod}")
+            # Log the error, but proceed to allow report generation with available data
+            
+        # ... (unique_customers_count and summary stats calculation remains the same) ...
+        unique_customers_count = 0
+        try:
+            rpc_params_cust = {'p_start_date': start_date.isoformat(), 'p_end_date': end_date.isoformat()}
+            customer_count_res = supabase.rpc('get_distinct_customer_count_for_period', rpc_params_cust).execute()
+            if customer_count_res.data is not None:
+                if isinstance(customer_count_res.data, list) and customer_count_res.data: 
+                    if isinstance(customer_count_res.data[0], dict) and 'customer_count' in customer_count_res.data[0]:
+                         unique_customers_count = customer_count_res.data[0].get('customer_count', 0)
+                    elif isinstance(customer_count_res.data[0], (int, float)): 
+                         unique_customers_count = customer_count_res.data[0]
+                elif isinstance(customer_count_res.data, (int, float)): 
+                    unique_customers_count = customer_count_res.data
+                else:
+                    print(f"Warning: Unexpected data type for customer_count_res.data: {type(customer_count_res.data)}, value: {customer_count_res.data}")
+        except Exception as e_rpc_cust:
+            print(f"Error fetching unique customer count via RPC: {e_rpc_cust}")
+        
+        total_sales_amount = sum(txn['total_amount'] for txn in transactions_for_report)
+        total_transactions_count = len(transactions_for_report)
+        average_transaction_value = total_sales_amount / total_transactions_count if total_transactions_count > 0 else 0
+
 
         buffer = io.BytesIO()
-        p_canvas = canvas.Canvas(buffer, pagesize=letter) # Renamed to avoid conflict
-        width, height = letter
-        p_canvas.setFont('Helvetica-Bold', 16)
-        p_canvas.drawString(50, height - 50, "Bash Merchandise Management")
-        p_canvas.setFont('Helvetica', 14)
-        p_canvas.drawString(50, height - 70, title)
-        p_canvas.setFont('Helvetica', 10)
-        p_canvas.line(50, height - 80, width - 50, height - 80)
+        # --- Adjust topMargin for SimpleDocTemplate ---
+        doc = SimpleDocTemplate(buffer, pagesize=letter,
+                                leftMargin=0.75*inch, rightMargin=0.75*inch,
+                                topMargin=1.6*inch, # Increased topMargin
+                                bottomMargin=0.75*inch) 
+        
+        styles = getSampleStyleSheet()
+        small_style = ParagraphStyle(
+            'Small', parent=styles['Normal'], fontSize=8, leading=10
+        )
+        styles.add(small_style)
+        story = []
 
-        y_position = height - 100
-        # Adjusted X positions for more columns potentially
-        headers = ["Date", "Transaction ID", "Customer", "Payment", "Amount (UGX)"]
-        x_positions = [50, 150, 270, 380, 480] 
-        p_canvas.setFont('Helvetica-Bold', 10)
-        for i, header in enumerate(headers): p_canvas.drawString(x_positions[i], y_position, header)
+        # --- Add a Spacer at the beginning of the story to push content down ---
+        # This spacer helps ensure the first content item doesn't overlap with a manually drawn header.
+        # The height of the spacer should roughly match the space taken by your header elements below the topMargin line.
+        # story.append(Spacer(1, 0.1*inch)) # Adjust as needed, or remove if topMargin increase is enough
 
-        y_position -= 15
-        p_canvas.setFont('Helvetica', 9)
-        total_report_amount = 0
+        # ... (Summary Statistics table remains the same) ...
+        story.append(Paragraph("<b>Summary Statistics</b>", styles['h2']))
+        summary_data = [
+            [Paragraph(f"<b>Reporting Period:</b>", styles['Normal']), Paragraph(report_title_date_str, styles['Normal'])],
+            [Paragraph(f"<b>Total Sales (UGX):</b>", styles['Normal']), Paragraph(format_ugx_for_pdf(total_sales_amount), styles['Normal'])],
+            [Paragraph(f"<b>Total Transactions:</b>", styles['Normal']), Paragraph(str(total_transactions_count), styles['Normal'])],
+            [Paragraph(f"<b>Unique Customers:</b>", styles['Normal']), Paragraph(str(unique_customers_count), styles['Normal'])],
+            [Paragraph(f"<b>Avg. Transaction Value (UGX):</b>", styles['Normal']), Paragraph(format_ugx_for_pdf(average_transaction_value), styles['Normal'])],
+        ]
+        summary_table = Table(summary_data, colWidths=[2.5*inch, 4*inch])
+        summary_table.setStyle(TableStyle([
+            ('VALIGN', (0,0), (-1,-1), 'TOP'), ('LEFTPADDING', (0,0), (-1,-1), 0), ('BOTTOMPADDING', (0,0), (-1,-1), 3),
+        ]))
+        story.append(summary_table)
+        story.append(Spacer(1, 0.3*inch))
 
-        for txn in transactions_for_report:
-            if y_position < 60: # New page if not enough space
-                p_canvas.showPage()
-                p_canvas.setFont('Helvetica-Bold', 10)
-                y_position = height - 100 # Reset y_position for new page
-                for i, header in enumerate(headers): p_canvas.drawString(x_positions[i], y_position, header)
-                y_position -= 15
-                p_canvas.setFont('Helvetica', 9)
 
-            date_str = datetime.datetime.fromisoformat(txn['date'].replace('Z', '+00:00')).strftime('%d/%m/%y %H:%M')
-            txn_id_str = txn['transaction_code']
-            customer_info = txn.get('customer')
-            customer_name_str = customer_info['name'] if customer_info else 'N/A'
-            payment_method_str = txn.get('payment_method', 'N/A')
-            amount_val = txn['total_amount']
-            total_report_amount += amount_val
+        # ... (Products Sold table remains the same) ...
+        story.append(Paragraph("<b>Products Sold</b>", styles['h2']))
+        if product_sales_data: # Check if data exists
+            product_header = [ Paragraph(f"<b>{h}</b>", styles['Normal']) for h in ["Product Name", "SKU", "Qty Sold", "Avg. Price (UGX)", "Revenue (UGX)", "Stock Left", "Status"]]
+            product_table_data = [product_header]
+            for p_item in product_sales_data:
+                avg_price = (p_item.get('total_revenue_val',0) / p_item['total_quantity_sold']) if p_item.get('total_quantity_sold',0) > 0 else 0
+                product_table_data.append([
+                    Paragraph(p_item.get('product_name_val', 'N/A'), styles['Small']), 
+                    Paragraph(p_item.get('product_sku_val', 'N/A'), styles['Small']),
+                    Paragraph(str(p_item.get('total_quantity_sold', 0)), styles['Small']),
+                    Paragraph(format_ugx_for_pdf(avg_price), styles['Small']),
+                    Paragraph(format_ugx_for_pdf(p_item.get('total_revenue_val', 0)), styles['Small']),
+                    Paragraph(str(p_item.get('current_stock_val', 0)), styles['Small']),
+                    Paragraph("Active" if p_item.get('current_status_val') else "Inactive", styles['Small'])
+                ])
+            product_sales_table = Table(product_table_data, colWidths=[1.8*inch, 0.7*inch, 0.5*inch, 0.9*inch, 0.9*inch, 0.7*inch, 0.7*inch]) # Adjusted SKU, Qty, Price, Revenue widths
+            product_sales_table.setStyle(TableStyle([
+                ('BACKGROUND', (0,0), (-1,0), TABLE_HEADER_COLOR), ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
+                ('ALIGN', (0,0), (-1,-1), 'LEFT'), ('ALIGN', (2,1), (2,-1), 'RIGHT'), 
+                ('ALIGN', (3,1), (4,-1), 'RIGHT'), ('ALIGN', (5,1), (5,-1), 'RIGHT'), 
+                ('FONTNAME', (0,0), (-1,0), FONT_NAME_BOLD), ('BOTTOMPADDING', (0,0), (-1,0), 10),
+                ('BACKGROUND', (0,1), (-1,-1), TABLE_ROW_LIGHT_COLOR), ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
+                ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+            ]))
+            story.append(product_sales_table)
+        else:
+            story.append(Paragraph("No products were sold during this period, or product sales data could not be fetched.", styles['Normal']))
+        story.append(Spacer(1, 0.3*inch))
 
-            p_canvas.drawString(x_positions[0], y_position, date_str)
-            p_canvas.drawString(x_positions[1], y_position, txn_id_str)
-            p_canvas.drawString(x_positions[2], y_position, customer_name_str)
-            p_canvas.drawString(x_positions[3], y_position, payment_method_str)
+
+        # Section 3: Transaction Details (Updated)
+        story.append(Paragraph("<b>Transaction Details</b>", styles['h2']))
+        if transactions_for_report:
+            txn_header = [Paragraph(f"<b>{h}</b>", styles['Normal']) for h in [
+                "Date/Time", "Transaction ID", "Customer", "Payment", 
+                "Total (UGX)", "Paid (UGX)", "Balance (UGX)" # Added Paid & Balance
+            ]]
+            txn_table_data = [txn_header]
+            for txn in transactions_for_report:
+                date_str = datetime.datetime.fromisoformat(txn['date'].replace('Z', '+00:00')).strftime('%d/%m/%y %H:%M')
+                customer_name_str = txn.get('customer')['name'] if txn.get('customer') else 'N/A'
+                txn_table_data.append([
+                    Paragraph(date_str, styles['Small']), 
+                    Paragraph(txn['transaction_code'], styles['Small']),
+                    Paragraph(customer_name_str, styles['Small']), 
+                    Paragraph(txn.get('payment_method', 'N/A'), styles['Small']),
+                    Paragraph(format_ugx_for_pdf(txn['total_amount']), styles['Small']),
+                    Paragraph(format_ugx_for_pdf(txn.get('amount_paid')), styles['Small']), # Use .get() for safety
+                    Paragraph(format_ugx_for_pdf(txn.get('balance_due')), styles['Small']) # Use .get() for safety
+                ])
             
-            try: amount_str_pdf = f"{float(amount_val):,.0f}"
-            except: amount_str_pdf = "Invalid"
-            p_canvas.drawRightString(x_positions[4] + 70, y_position, amount_str_pdf) # Right align amount
+            # Adjust colWidths for new columns
+            transactions_table = Table(txn_table_data, colWidths=[
+                1.0*inch, 1.5*inch, 1.2*inch, 0.8*inch, 
+                0.8*inch, 0.8*inch, 0.9*inch # Widths for Total, Paid, Balance
+            ])
+            transactions_table.setStyle(TableStyle([
+                ('BACKGROUND', (0,0), (-1,0), TABLE_HEADER_COLOR), ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
+                ('ALIGN', (0,0), (-1,-1), 'LEFT'), 
+                ('ALIGN', (4,1), (-1,-1), 'RIGHT'), # Right align Total, Paid, Balance columns
+                ('FONTNAME', (0,0), (-1,0), FONT_NAME_BOLD), ('BOTTOMPADDING', (0,0), (-1,0), 10),
+                ('BACKGROUND', (0,1), (-1,-1), TABLE_ROW_LIGHT_COLOR), ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
+                ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+            ]))
+            story.append(transactions_table)
+        else:
+            story.append(Paragraph("No transactions recorded during this period.", styles['Normal']))
 
-            y_position -= 15
-
-        p_canvas.line(50, y_position + 5, width - 50, y_position + 5)
-        y_position -= 10
-        p_canvas.setFont('Helvetica-Bold', 10)
-        summary_x_start = x_positions[3] # Align summary labels under "Payment"
-        p_canvas.drawString(summary_x_start, y_position, "Total Transactions:")
-        p_canvas.drawRightString(x_positions[4] + 70, y_position, str(len(transactions_for_report)))
-        y_position -= 15
-        p_canvas.drawString(summary_x_start, y_position, "Total Amount (UGX):")
-        try: total_amount_str_pdf = f"{float(total_report_amount):,.0f}"
-        except: total_amount_str_pdf = "Invalid"
-        p_canvas.drawRightString(x_positions[4] + 70, y_position, total_amount_str_pdf)
-
-        p_canvas.save()
+        doc.build(story, onFirstPage=draw_page_header_footer, onLaterPages=draw_page_header_footer)
         buffer.seek(0)
-        download_filename = f"BashMerch_{period}_report_{today.strftime('%Y%m%d')}.pdf"
+        
+        download_filename = f"BashMerch_{period}_report_{filename_date_part}.pdf"
         return send_file(buffer, mimetype='application/pdf', as_attachment=True, download_name=download_filename)
 
     except Exception as e:

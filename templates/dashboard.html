@@ -18,6 +18,22 @@
             flex-wrap: wrap; /* Allow wrapping on smaller screens */
             gap: 15px; /* Add gap for wrapped items */
         }
+        .report-controls {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap; /* Allow buttons/dropdown to wrap */
+            align-items: center; /* Align items vertically */
+        }
+
+        .report-dropdown, #reportDateSelect { /* Apply to date input too */
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            background-color: white; 
+            color: var(--dark); 
+            height: 38px; 
+            box-sizing: border-box;
+        }
 
         .page-title h1 {
             margin: 0;
@@ -293,23 +309,23 @@
 
 
 {% block content %}
-    {# Use the specific class name defined in styles #}
     <div class="dashboard-header">
         <div class="page-title">
             <h1>Dashboard</h1>
         </div>
         <div class="report-controls">
-            {# Use unique IDs for JS targeting if needed later #}
             <select id="reportPeriodSelect" class="report-dropdown">
                 <option value="daily">Daily Report</option>
                 <option value="weekly">Weekly Report</option>
                 <option value="monthly">Monthly Report</option>
             </select>
-            {# Link the download button to the API endpoint #}
+            <!-- NEW: Date input for daily report -->
+            <input type="date" id="reportDateSelect" style="display: none;"/> 
+
             <a href="#" id="downloadReportBtn" class="btn btn-outline">
                 <i class="fas fa-download"></i> Download
             </a>
-            <button id="printReportBtn" class="btn btn-outline" disabled> {# Disable print for now #}
+            <button id="printReportBtn" class="btn btn-outline" disabled>
                 <i class="fas fa-print"></i> Print
             </button>
         </div>
@@ -398,36 +414,77 @@
 {% endblock %} {# Correctly closing content block #}
 
 {% block scripts %}
-    <!-- {{ super() }} {# Include scripts from base - Important if base has JS #} -->
-    <!-- Add any JavaScript specific to dashboard.html HERE -->
     <script>
-        // Add functionality to the Download Report button
-        const downloadBtn = document.getElementById('downloadReportBtn');
-        const periodSelect = document.getElementById('reportPeriodSelect');
+        document.addEventListener('DOMContentLoaded', function() { // Ensure DOM is loaded
+            const downloadBtn = document.getElementById('downloadReportBtn');
+            const periodSelect = document.getElementById('reportPeriodSelect');
+            const dateSelectInput = document.getElementById('reportDateSelect');
 
-        if (downloadBtn && periodSelect) {
-            downloadBtn.addEventListener('click', function(event) {
-                event.preventDefault(); // Prevent default link behavior
-                const selectedPeriod = periodSelect.value;
-                // Construct the URL using Flask's url_for (can't be done directly in static JS)
-                // We need to build the URL string manually here.
-                // Ensure your Flask API route is '/api/reports/<period>'
-                const reportUrl = `/api/reports/${selectedPeriod}`;
-                console.log('Requesting report:', reportUrl);
-                window.location.href = reportUrl; // Navigate to trigger download
-            });
-        }
+            function getTodayDateString() {
+                const today = new Date();
+                const year = today.getFullYear();
+                const month = String(today.getMonth() + 1).padStart(2, '0');
+                const day = String(today.getDate()).padStart(2, '0');
+                return `${year}-${month}-${day}`;
+            }
 
-         // Basic print functionality (prints the whole page)
-        const printBtn = document.getElementById('printReportBtn');
-        if (printBtn) {
-             // Enable the print button if needed, or implement specific printing logic
-             // printBtn.disabled = false;
-            printBtn.addEventListener('click', function() {
-                window.print();
-            });
-        }
+            function toggleDateInput() {
+                if (periodSelect.value === 'daily') {
+                    dateSelectInput.style.display = 'inline-block'; // Or 'block' or 'flex'
+                    if (!dateSelectInput.value) { // Set default to today if empty
+                        dateSelectInput.value = getTodayDateString();
+                    }
+                } else {
+                    dateSelectInput.style.display = 'none';
+                }
+            }
 
+            if (periodSelect && dateSelectInput) {
+                // Initial check on page load
+                toggleDateInput(); 
+                periodSelect.addEventListener('change', toggleDateInput);
+            }
+
+            if (downloadBtn && periodSelect && dateSelectInput) {
+                downloadBtn.addEventListener('click', function(event) {
+                    event.preventDefault(); 
+                    const selectedPeriod = periodSelect.value;
+                    let reportUrl = `/api/reports/${selectedPeriod}`;
+
+                    if (selectedPeriod === 'daily') {
+                        const selectedDate = dateSelectInput.value;
+                        if (selectedDate) {
+                            // Basic check if date is in YYYY-MM-DD format. 
+                            // HTML5 type="date" input should handle this, but good for robustness.
+                            if (/^\d{4}-\d{2}-\d{2}$/.test(selectedDate)) {
+                                reportUrl += `?date=${selectedDate}`;
+                            } else {
+                                console.warn('Invalid date selected for daily report. Defaulting to today.');
+                                // Optionally, alert user or prevent download
+                                // If no date parameter, server defaults to today
+                            }
+                        } else {
+                            // No date explicitly selected, let server default to today for daily report.
+                            // Or you could alert: alert('Please select a date for the daily report.'); return;
+                             console.log('No date selected for daily report. Server will use today.');
+                        }
+                    }
+                    
+                    console.log('Requesting report:', reportUrl);
+                    window.location.href = reportUrl; 
+                });
+            }
+
+            const printBtn = document.getElementById('printReportBtn');
+            if (printBtn) {
+                // printBtn.disabled = false; // Enable if you want to allow printing current view
+                printBtn.addEventListener('click', function() {
+                    // Note: This prints the current HTML page, not the generated PDF report.
+                    // For printing the PDF, the user would typically download it and print from their PDF viewer.
+                    window.print(); 
+                });
+            }
+        });
     </script>
-{% endblock %} {# Correctly closing scripts block #}
+{% endblock %}
 
