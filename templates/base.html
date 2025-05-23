@@ -48,7 +48,7 @@
             <li><a href="{{ url_for('products') }}" class="{{ 'active' if request.endpoint == 'products' else '' }}">Products</a></li>
             <li><a href="{{ url_for('transactions') }}" class="{{ 'active' if request.endpoint == 'transactions' else '' }}">Transactions</a></li>
             <li> <a class="nav-link {% if request.endpoint == 'customers_page' %}active{% endif %}" href="{{ url_for('customers_page') }}">Customers</a>></li>
-            <li><a href="{{ url_for('reports') }}" class="{{ 'active' if request.endpoint == 'reports' else '' }}">Reports</a></li>
+            <!-- <li><a href="{{ url_for('reports') }}" class="{{ 'active' if request.endpoint == 'reports' else '' }}">Reports</a></li> -->
             <li><a href="{{ url_for('profile') }}" class="{{ 'active' if request.endpoint == 'profile' else '' }}">My Profile</a></li>
             {% if user.get('role') == 'admin' %} {# Opens if admin for Employees #}
             <li><a href="{{ url_for('employees') }}" class="{{ 'active' if request.endpoint == 'employees' else '' }}">Employees</a></li>
