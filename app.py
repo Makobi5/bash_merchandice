@@ -24,6 +24,8 @@ import os
 from werkzeug.utils import secure_filename
 import uuid
 from dateutil.relativedelta import relativedelta 
+
+from gotrue.errors import AuthApiError 
 # Removed duplicate import: from flask import request, get_flashed_messages (already imported via Flask)
 
 # Load environment variables
@@ -268,6 +270,190 @@ def login():
             else: flash('An error occurred during login.', 'danger'); print(f"Login error for {email}: {error_message}")
             return render_template('login.html')
     return render_template('login.html')
+
+
+# --- REQUEST PASSWORD RESET ROUTE ---
+@app.route('/request-password-reset', methods=['GET', 'POST'])
+def request_password_reset():
+    if not check_supabase():
+        flash("Application error: Database connection failed.", "danger")
+        return render_template('request_password_reset.html')
+
+    if request.method == 'POST':
+        email = request.form.get('email')
+        if not email:
+            flash('Email address is required.', 'warning')
+            return render_template('request_password_reset.html')
+
+        try:
+            # The redirect_to URL must be whitelisted in your Supabase project's Auth settings
+            redirect_url = url_for('reset_password_form', _external=True)
+            print(f"Attempting to send password reset. Email: {email}, Redirect URL: {redirect_url}")
+            
+            supabase.auth.reset_password_for_email(
+                email,
+                options={'redirect_to': redirect_url}
+            )
+            flash('If an account with that email exists, a password reset link has been sent.', 'info')
+            return redirect(url_for('login'))
+        except Exception as e:
+            # Supabase might throw an error if the email format is invalid,
+            # but typically doesn't for non-existent emails to prevent enumeration.
+            print(f"Error sending password reset email for {email}: {str(e)}")
+            # It's generally better not to reveal if an email exists or not for security.
+            flash('If an account with that email exists, a password reset link has been sent. If you encounter issues, please contact support.', 'info') # Generic message
+            return redirect(url_for('login')) # Redirect to login even on error to obscure
+
+    return render_template('request_password_reset.html')
+
+# ... (your existing imports)
+from gotrue.errors import AuthApiError # Import specific Supabase error type
+
+# ... (other routes) ...
+
+# --- RESET PASSWORD FORM ROUTE (handles redirect from Supabase and form submission) ---
+@app.route('/reset-password-form', methods=['GET', 'POST'])
+def reset_password_form():
+    if not check_supabase():
+        flash("Application error: Database connection failed.", "danger")
+        return render_template('reset_password_form.html') 
+
+    if request.method == 'POST':
+        new_password = request.form.get('new_password')
+        confirm_password = request.form.get('confirm_new_password')
+        recovery_token_from_form = request.form.get('access_token')
+
+        print(f"--- Reset Password POST ---")
+        print(f"Received recovery_token_from_form (first 10 chars): {recovery_token_from_form[:10] if recovery_token_from_form else 'NONE'}")
+
+        if not recovery_token_from_form:
+            flash('Invalid or expired password reset session (no token found). Please request a new reset link.', "danger")
+            return redirect(url_for('request_password_reset'))
+
+        # Password validation checks
+        if not new_password or not confirm_password:
+            flash('Both password fields are required.', "warning")
+            return render_template('reset_password_form.html') 
+        if len(new_password) < 8:
+            flash('Password must be at least 8 characters long.', "warning")
+            return render_template('reset_password_form.html')
+        if new_password != confirm_password:
+            flash('Passwords do not match.', "warning")
+            return render_template('reset_password_form.html')
+        
+        # Clear Flask session
+        session.clear() 
+
+        try:
+            print(f"Attempting to verify and use recovery token for password update.")
+            
+            # Method 1: Try to set the session directly with the recovery token
+            # This establishes the authenticated session needed for update_user()
+            try:
+                print("Attempting to set session with recovery token...")
+                session_response = supabase.auth.set_session(
+                    access_token=recovery_token_from_form,
+                    refresh_token=recovery_token_from_form  # For recovery tokens, access and refresh might be the same
+                )
+                
+                if session_response and session_response.user:
+                    print(f"Successfully set session for user: {session_response.user.id}")
+                    
+                    # Now update the password
+                    print(f"Attempting to update password for authenticated user")
+                    update_response = supabase.auth.update_user(
+                        attributes={"password": new_password}
+                    )
+                    
+                    if update_response and update_response.user:
+                        print(f"Password update successful for user: {update_response.user.id}")
+                        flash('Your password has been updated successfully. Please log in.', 'success')
+                        supabase.auth.sign_out()  # Clear the temporary session
+                        return redirect(url_for('login'))
+                    else:
+                        print(f"Update user response was unexpected: {update_response}")
+                        flash('Password update failed. Please try again.', 'warning')
+                        return render_template('reset_password_form.html')
+                        
+            except Exception as set_session_error:
+                print(f"set_session failed: {set_session_error}")
+                
+                # Method 2: Fallback - try verify_otp with recovery token
+                print("Trying verify_otp as fallback...")
+                try:
+                    # Extract email from the token if possible (for verify_otp)
+                    user_response = supabase.auth.get_user(jwt=recovery_token_from_form)
+                    if not user_response or not user_response.user:
+                        raise Exception("Could not get user from recovery token")
+                    
+                    user_email = user_response.user.email
+                    print(f"Attempting verify_otp for email: {user_email}")
+                    
+                    # Use verify_otp with the recovery token
+                    auth_response = supabase.auth.verify_otp(
+                        params={
+                            'email': user_email,
+                            'token': recovery_token_from_form,
+                            'type': 'recovery'
+                        }
+                    )
+                    
+                    if auth_response and auth_response.user:
+                        print(f"verify_otp successful for user: {auth_response.user.id}")
+                        
+                        # Now update the password
+                        update_response = supabase.auth.update_user(
+                            attributes={"password": new_password}
+                        )
+                        
+                        if update_response and update_response.user:
+                            print(f"Password update successful for user: {update_response.user.id}")
+                            flash('Your password has been updated successfully. Please log in.', 'success')
+                            supabase.auth.sign_out()  # Clear the session
+                            return redirect(url_for('login'))
+                        else:
+                            print(f"Update user response was unexpected: {update_response}")
+                            flash('Password update failed. Please try again.', 'warning')
+                            return render_template('reset_password_form.html')
+                    else:
+                        raise Exception("verify_otp did not return a valid user")
+                        
+                except Exception as verify_error:
+                    print(f"verify_otp also failed: {verify_error}")
+                    raise Exception("Both set_session and verify_otp methods failed")
+
+        except AuthApiError as e_auth: 
+            error_message = str(e_auth)
+            details = getattr(e_auth, 'json', None) 
+            gotrue_error_message = error_message
+            if details and isinstance(details, dict) and 'msg' in details: 
+                gotrue_error_message = details['msg']
+            elif details and isinstance(details, dict) and 'message' in details: 
+                gotrue_error_message = details['message']
+            status_code = e_auth.status if hasattr(e_auth, 'status') else 'N/A'
+            
+            print(f"AuthApiError during password reset: [{status_code}] {error_message}. GoTrue msg: {gotrue_error_message}")
+            flash_msg = 'An error occurred while updating your password.'
+            if any(keyword in gotrue_error_message.lower() for keyword in ["invalid", "expired", "token", "session not found"]) or \
+               status_code in [401, 400]:
+                 flash_msg = 'Your password reset link is invalid, has expired, or the session is no longer valid. Please request a new one.'
+            flash(flash_msg, 'danger')
+            supabase.auth.sign_out()  # Clean up client state
+            return redirect(url_for('request_password_reset'))
+
+        except Exception as e: 
+            error_type = type(e).__name__
+            error_message = str(e)
+            print(f"Generic error during password reset: [{error_type}] {error_message}") 
+            flash_msg = 'An unexpected error occurred. Please try again or contact support.'
+            if "AuthSessionMissingError" in error_type:
+                 flash_msg = "Failed to update password due to a session issue. The recovery link may be invalid or expired."
+            flash(flash_msg, 'danger')
+            supabase.auth.sign_out()  # Clean up client state
+            return redirect(url_for('request_password_reset'))
+
+    # GET request: Simply render the form.
+    return render_template('reset_password_form.html')
 
 
 # Authentication decorator (No changes needed)
