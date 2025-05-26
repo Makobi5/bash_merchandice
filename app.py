@@ -1889,6 +1889,29 @@ def profile():
         # Log the received data for debugging
         print(f"Profile update requested for user {current_auth_user_id}")
         print(f"Form data: username={username}, first_name={first_name}, last_name={last_name}")
+        print(f"Password change requested: {bool(new_password)}")
+        
+        # Validate password if provided
+        password_error = None
+        if new_password or confirm_new_password:
+            if not new_password:
+                password_error = "New password is required."
+            elif not confirm_new_password:
+                password_error = "Please confirm your new password."
+            elif len(new_password) < 8:
+                password_error = "Password must be at least 8 characters long."
+            elif new_password != confirm_new_password:
+                password_error = "Passwords do not match."
+        
+        if password_error:
+            flash(password_error, "danger")
+            return render_template('profile.html', profile={
+                'username': username,
+                'first_name': first_name,
+                'last_name': last_name,
+                'email': request.form.get('email'),
+                'role': request.form.get('role')
+            }, edit_mode=True)
         
         try:
             # First, check if the username is already taken by another user
@@ -1911,12 +1934,12 @@ def profile():
             # Import datetime correctly
             from datetime import datetime
             
-            # Prepare the update data
+            # Prepare the update data for the users table
             update_data = {
                 'username': username,
                 'first_name': first_name,
                 'last_name': last_name,
-                'updated_at': datetime.now().isoformat()  # Fixed: Using datetime.now() instead of datetime.utcnow()
+                'updated_at': datetime.now().isoformat()
             }
             
             # Update the user profile in the database
@@ -1925,17 +1948,79 @@ def profile():
                 .eq('auth_user_id', current_auth_user_id) \
                 .execute()
             
-            print(f"Supabase update response: {response}")
+            print(f"Supabase users table update response: {response}")
             
-            # Handle password update if needed
+            # Handle password update if provided
+            password_updated = False
+            password_update_failed = False
+            
             if new_password and new_password == confirm_new_password:
-                # This depends on your auth setup - you may need to use a different method
-                # For now, we'll just log that we would update the password
-                print(f"Would update password for user {current_auth_user_id}")
-                # Add your password update logic here
+                try:
+                    # Get the current user's access token from session
+                    access_token = session.get('access_token')
+                    if not access_token:
+                        print("No access token found in session")
+                        flash("Session expired. Please log in again to change your password.", "warning")
+                        return redirect(url_for('login'))
+                    
+                    print(f"Attempting to update password for user {current_auth_user_id}")
+                    
+                    # Set the session with the current access token to authenticate the request
+                    supabase.auth.set_session(access_token, session.get('refresh_token', ''))
+                    
+                    # Update the password using Supabase auth
+                    auth_update_response = supabase.auth.update_user(
+                        attributes={"password": new_password}
+                    )
+                    
+                    if auth_update_response and auth_update_response.user:
+                        print(f"Password updated successfully for user: {auth_update_response.user.id}")
+                        password_updated = True
+                        
+                        # Update session tokens if they were refreshed
+                        if hasattr(auth_update_response, 'session') and auth_update_response.session:
+                            session['access_token'] = auth_update_response.session.access_token
+                            if auth_update_response.session.refresh_token:
+                                session['refresh_token'] = auth_update_response.session.refresh_token
+                        
+                        # Ensure the user data in session is still valid
+                        if auth_update_response.user.id != current_auth_user_id:
+                            print(f"WARNING: User ID changed during password update. Old: {current_auth_user_id}, New: {auth_update_response.user.id}")
+                            session['user']['id'] = auth_update_response.user.id
+                            current_auth_user_id = auth_update_response.user.id
+                    else:
+                        print(f"Password update response was unexpected: {auth_update_response}")
+                        password_update_failed = True
+                        flash("Password update failed. Please try again.", "warning")
+                        
+                except Exception as pwd_error:
+                    print(f"Error updating password: {pwd_error}")
+                    password_update_failed = True
+                    error_type = type(pwd_error).__name__
+                    
+                    if "AuthSessionMissingError" in error_type:
+                        flash("Session expired. Please log in again to change your password.", "warning")
+                        return redirect(url_for('login'))
+                    elif "AuthApiError" in error_type:
+                        flash("Failed to update password. Please try again or contact support.", "danger")
+                    else:
+                        flash("An error occurred while updating your password. Please try again.", "danger")
             
-            flash("Profile updated successfully!", "success")
-            return redirect(url_for('profile'))
+            # Only show success message and redirect if password update didn't fail
+            if not password_update_failed:
+                # Provide appropriate success message
+                if password_updated:
+                    flash("Profile and password updated successfully!", "success")
+                else:
+                    flash("Profile updated successfully!", "success")
+                    
+                # IMPORTANT: Redirect immediately after successful update to avoid
+                # the GET request that might fail to find user data
+                return redirect(url_for('profile'))
+            else:
+                # If password update failed, still try to show the profile page
+                # but with the error message already flashed
+                pass  # Fall through to the profile loading logic below
         
         except Exception as e:
             print(f"Error updating profile for {current_auth_user_id}: {e}")
@@ -1948,28 +2033,105 @@ def profile():
                 'role': request.form.get('role')
             }, edit_mode=True)
     
-    else:
-        # GET request - show profile page
-        try:
-            response = supabase.table('users') \
-                .select('id, email, username, first_name, last_name, role') \
-                .eq('auth_user_id', current_auth_user_id) \
-                .maybe_single() \
-                .execute()
-            
-            if response.data:
-                user_data = response.data
-                user_data['created_at_formatted'] = "Account creation date not available"
-                return render_template('profile.html', profile=user_data, edit_mode=edit_mode)
-            else:
-                print(f"WARNING: Profile data not found in public.users for authenticated user {current_auth_user_id}")
-                flash("User profile data not found in the database. Please contact support.", "warning")
-                return redirect(url_for('dashboard'))
+    # GET request or failed password update - show profile page
+    try:
+        # First, let's try a simple select to see what we get
+        print(f"Querying users table for auth_user_id: {current_auth_user_id}")
         
-        except Exception as e:
-            print(f"Error fetching profile data for {current_auth_user_id}: {e}")
-            flash("Could not load profile data due to a server error.", "danger")
+        # Try without role first to see if that's the issue
+        response = supabase.table('users') \
+            .select('id, email, username, first_name, last_name') \
+            .eq('auth_user_id', current_auth_user_id) \
+            .execute()
+        
+        print(f"Profile fetch response (without role): {response}")
+        print(f"Response type: {type(response)}")
+        print(f"Response data: {response.data if response and hasattr(response, 'data') else 'No data attribute'}")
+        print(f"Data length: {len(response.data) if response and hasattr(response, 'data') and response.data else 'N/A'}")
+        
+        if response and hasattr(response, 'data') and response.data and len(response.data) > 0:
+            user_data = response.data[0]  # Get first result
+            
+            # Now try to get the role separately
+            try:
+                role_response = supabase.table('users') \
+                    .select('role') \
+                    .eq('auth_user_id', current_auth_user_id) \
+                    .execute()
+                
+                if role_response and role_response.data and len(role_response.data) > 0:
+                    user_data['role'] = role_response.data[0].get('role', 'user')
+                    print(f"Role fetched successfully: {user_data['role']}")
+                else:
+                    user_data['role'] = 'user'  # Default role
+                    print("Role not found, using default: user")
+                    
+            except Exception as role_error:
+                print(f"Error fetching role: {role_error}")
+                user_data['role'] = 'user'  # Default role
+            
+            user_data['created_at_formatted'] = "Account creation date not available"
+            print(f"Successfully found user data: {user_data}")
+            return render_template('profile.html', profile=user_data, edit_mode=edit_mode)
+        else:
+            print(f"WARNING: Profile data not found in public.users for authenticated user {current_auth_user_id}")
+            print(f"Response details: {response}")
+            
+            # Let's check what users exist in the database
+            try:
+                all_users_response = supabase.table('users') \
+                    .select('auth_user_id, username, email') \
+                    .execute()
+                print(f"All users in database: {all_users_response.data if all_users_response and all_users_response.data else 'None'}")
+            except Exception as check_error:
+                print(f"Error checking all users: {check_error}")
+            
+            # CRITICAL FIX: Check if this is immediately after a successful update
+            # If we just successfully updated and redirected, but now can't find the user,
+            # it might be a temporary database sync issue
+            if request.method == 'GET' and not edit_mode:
+                # This is a GET request (likely from redirect after successful update)
+                # Let's try one more time with a slight delay for database sync
+                import time
+                time.sleep(0.5)  # Small delay to allow database sync
+                
+                retry_response = supabase.table('users') \
+                    .select('id, email, username, first_name, last_name, role') \
+                    .eq('auth_user_id', current_auth_user_id) \
+                    .execute()
+                
+                if retry_response and retry_response.data and len(retry_response.data) > 0:
+                    user_data = retry_response.data[0]
+                    user_data['created_at_formatted'] = "Account creation date not available"
+                    print(f"Successfully found user data on retry: {user_data}")
+                    return render_template('profile.html', profile=user_data, edit_mode=edit_mode)
+            
+            # If we still can't find the user, but they're authenticated, 
+            # create a minimal profile from session data
+            session_user = session.get('user', {})
+            if session_user:
+                minimal_profile = {
+                    'username': session_user.get('email', '').split('@')[0],  # Use email prefix as username
+                    'first_name': '',
+                    'last_name': '',
+                    'email': session_user.get('email', ''),
+                    'role': 'user',
+                    'created_at_formatted': "Account creation date not available"
+                }
+                print(f"Using minimal profile from session: {minimal_profile}")
+                flash("Profile data is being synchronized. Some information may be temporarily unavailable.", "info")
+                return render_template('profile.html', profile=minimal_profile, edit_mode=edit_mode)
+            
+            flash("User profile data not found in the database. Please contact support.", "warning")
             return redirect(url_for('dashboard'))
+    
+    except Exception as e:
+        print(f"Error fetching profile data for {current_auth_user_id}: {e}")
+        print(f"Exception type: {type(e).__name__}")
+        flash("Could not load profile data due to a server error.", "danger")
+        return redirect(url_for('dashboard'))
+
+
 @app.route('/users/add', methods=['GET', 'POST'])
 @login_required
 def add_user():
