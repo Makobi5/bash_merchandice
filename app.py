@@ -524,13 +524,14 @@ def dashboard():
 
         # Top Products for Today
         print(f"--- DASHBOARD: Calling get_top_products RPC for date: {date_for_rpc_and_daily_queries} ---")
-        # Make sure this matches your SQL function's parameter name (query_date or p_query_date)
+        # ***** MODIFIED LINE: Ensure the key is 'query_date' *****
         top_products_response = supabase.rpc('get_top_products', {'query_date': date_for_rpc_and_daily_queries}).execute() 
         
         top_products = []
         if top_products_response.data:
             top_products = [{'name': p['name'], 'units': p['units']} for p in top_products_response.data]
-        print(f"--- DASHBOARD: Top products response data for {date_for_rpc_and_daily_queries}: {top_products_response.data} ---")
+        # Log the raw response and the parsed list
+        print(f"--- DASHBOARD: Top products RPC response data for {date_for_rpc_and_daily_queries}: {getattr(top_products_response, 'data', 'No data attribute')} ---")
         print(f"--- DASHBOARD: Parsed top products for template: {top_products} ---")
 
         # Inventory Alerts
@@ -543,18 +544,12 @@ def dashboard():
         # Recent Transactions
         recent_transactions_data = []
         try:
-            # Define your target timezone (e.g., EAT for UTC+3)
-            # List of timezones: https://en.wikipedia.org/wiki/List_of_tz_database_time_zones
-            target_timezone_str = "Africa/Nairobi" # Example for EAT (UTC+3)
-            # Or for a fixed offset if pytz isn't available and you are on Python < 3.9 for zoneinfo
-            # target_timezone = datetime.timezone(datetime.timedelta(hours=3)) # Fixed UTC+3
-
+            target_timezone_str = "Africa/Nairobi" 
             try:
                 target_tz = pytz.timezone(target_timezone_str)
             except pytz.UnknownTimeZoneError:
                 print(f"Warning: Unknown timezone '{target_timezone_str}'. Defaulting to UTC for display.")
-                target_tz = pytz.utc
-
+                target_tz = pytz.utc # Fallback to UTC
 
             recent_transactions_response = supabase.table('transactions') \
                 .select('''
@@ -572,30 +567,43 @@ def dashboard():
                     customer_info = txn.get('customer')
                     customer_name = customer_info['name'] if customer_info and isinstance(customer_info, dict) else 'Walk-in/N/A'
                     
-                    # Timezone conversion
                     utc_datetime_obj = None
                     if txn['date'].endswith('Z'):
                         utc_datetime_obj = datetime.datetime.fromisoformat(txn['date'].replace('Z', '+00:00'))
-                    else: # Assuming it might already have an offset or be naive (less ideal)
-                        utc_datetime_obj = datetime.datetime.fromisoformat(txn['date'])
-                        if utc_datetime_obj.tzinfo is None: # If naive, assume it's UTC
-                           utc_datetime_obj = utc_datetime_obj.replace(tzinfo=datetime.timezone.utc)
+                    else: 
+                        try:
+                            utc_datetime_obj = datetime.datetime.fromisoformat(txn['date'])
+                            if utc_datetime_obj.tzinfo is None: 
+                               utc_datetime_obj = utc_datetime_obj.replace(tzinfo=datetime.timezone.utc)
+                        except ValueError:
+                            print(f"Warning: Could not parse date string '{txn['date']}' for recent transaction. Skipping timezone conversion for this entry.")
+                            # Fallback or skip this entry if date is unparseable
+                            # For now, let's try to format it as is or show 'Invalid Date'
+                            recent_transactions_data.append({
+                                'transaction_code': txn['transaction_code'],
+                                'date_formatted': 'Invalid Date',
+                                'customer_name': customer_name,
+                                'total': txn['total_amount']
+                            })
+                            continue # Skip to next transaction if date is bad
 
-                    # Convert to target timezone
-                    local_datetime_obj = utc_datetime_obj.astimezone(target_tz)
-                    
+                    if utc_datetime_obj: # Proceed only if parsing was successful
+                        local_datetime_obj = utc_datetime_obj.astimezone(target_tz)
+                        date_formatted_str = local_datetime_obj.strftime('%d/%m/%y %I:%M %p')
+                    else: # Should not happen if continue above worked, but as a safeguard
+                        date_formatted_str = 'Date Error'
+
                     recent_transactions_data.append({
                         'transaction_code': txn['transaction_code'],
-                        'date_formatted': local_datetime_obj.strftime('%d/%m/%y %I:%M %p'), # Format the local time
+                        'date_formatted': date_formatted_str,
                         'customer_name': customer_name,
                         'total': txn['total_amount']
                     })
             print(f"--- DASHBOARD: Recent transactions fetched: {len(recent_transactions_data)} ---")
         except Exception as e_rt:
-            print(f"Error fetching/processing recent transactions for dashboard: {e_rt}")
+            print(f"Error fetching/processing recent transactions for dashboard: {type(e_rt).__name__} - {e_rt}")
             import traceback
             traceback.print_exc()
-
 
         return render_template(
             'dashboard.html',
