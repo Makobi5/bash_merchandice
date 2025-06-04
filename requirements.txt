@@ -2,6 +2,7 @@
 flask==3.0.2
 werkzeug==3.0.1
 supabase
+pytz
 
 # Database interaction
 psycopg2-binary==2.9.10  # For PostgreSQL connection

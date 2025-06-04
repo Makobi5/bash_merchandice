@@ -2,6 +2,7 @@ from flask import Flask, render_template, jsonify, request, send_file, session, 
 import os
 import io
 import datetime 
+import pytz
 import re
 from functools import wraps
 from reportlab.pdfgen import canvas
@@ -488,7 +489,6 @@ def time_ago(dt_string):
     except Exception as e:
         print(f"Error formatting time_ago for '{dt_string}': {e}")
         return "Invalid date"
-
 @app.route('/dashboard')
 @login_required
 def dashboard():
@@ -497,33 +497,71 @@ def dashboard():
         return render_template('dashboard.html', error='Database connection failed.', total_sales=0, total_transactions=0, top_products=[], low_stock_count=0, out_of_stock_count=0, recent_transactions=[])
 
     try:
-        today_start = datetime.datetime.now(datetime.timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
-        today_end = today_start + datetime.timedelta(days=1)
+        # Determine "today" based on the server's UTC time
+        today_start_dt = datetime.datetime.now(datetime.timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+        today_end_dt = today_start_dt + datetime.timedelta(days=1)
+        date_for_rpc_and_daily_queries = today_start_dt.date().isoformat()
+        
+        print(f"--- DASHBOARD: Processing data for date: {date_for_rpc_and_daily_queries} ---")
 
-        sales_response = supabase.table('transactions').select('total_amount').gte('date', today_start.isoformat()).lt('date', today_end.isoformat()).execute()
+        # Sales Today
+        sales_response = supabase.table('transactions') \
+            .select('total_amount') \
+            .gte('date', today_start_dt.isoformat()) \
+            .lt('date', today_end_dt.isoformat()) \
+            .execute()
         total_sales = sum(txn['total_amount'] for txn in sales_response.data) if sales_response.data else 0
+        print(f"--- DASHBOARD: Total sales for {date_for_rpc_and_daily_queries}: {total_sales} ---")
 
-        txn_count_response = supabase.table('transactions').select('id', count='exact').gte('date', today_start.isoformat()).lt('date', today_end.isoformat()).execute()
+        # Transactions Today Count
+        txn_count_response = supabase.table('transactions') \
+            .select('id', count='exact') \
+            .gte('date', today_start_dt.isoformat()) \
+            .lt('date', today_end_dt.isoformat()) \
+            .execute()
         total_transactions = txn_count_response.count if hasattr(txn_count_response, 'count') else 0
+        print(f"--- DASHBOARD: Total transactions for {date_for_rpc_and_daily_queries}: {total_transactions} ---")
 
-        top_products_response = supabase.rpc('get_top_products', {'query_date': today_start.date().isoformat()}).execute()
-        top_products = [{'name': p['name'], 'units': p['units']} for p in top_products_response.data] if top_products_response.data else []
+        # Top Products for Today
+        print(f"--- DASHBOARD: Calling get_top_products RPC for date: {date_for_rpc_and_daily_queries} ---")
+        # Make sure this matches your SQL function's parameter name (query_date or p_query_date)
+        top_products_response = supabase.rpc('get_top_products', {'query_date': date_for_rpc_and_daily_queries}).execute() 
+        
+        top_products = []
+        if top_products_response.data:
+            top_products = [{'name': p['name'], 'units': p['units']} for p in top_products_response.data]
+        print(f"--- DASHBOARD: Top products response data for {date_for_rpc_and_daily_queries}: {top_products_response.data} ---")
+        print(f"--- DASHBOARD: Parsed top products for template: {top_products} ---")
 
+        # Inventory Alerts
         low_stock_response = supabase.table('products').select('id', count='exact').gt('stock', 0).lte('stock', 5).execute()
         low_stock_count = low_stock_response.count if hasattr(low_stock_response, 'count') else 0
 
         out_of_stock_response = supabase.table('products').select('id', count='exact').eq('stock', 0).execute()
         out_of_stock_count = out_of_stock_response.count if hasattr(out_of_stock_response, 'count') else 0
         
+        # Recent Transactions
         recent_transactions_data = []
         try:
+            # Define your target timezone (e.g., EAT for UTC+3)
+            # List of timezones: https://en.wikipedia.org/wiki/List_of_tz_database_time_zones
+            target_timezone_str = "Africa/Nairobi" # Example for EAT (UTC+3)
+            # Or for a fixed offset if pytz isn't available and you are on Python < 3.9 for zoneinfo
+            # target_timezone = datetime.timezone(datetime.timedelta(hours=3)) # Fixed UTC+3
+
+            try:
+                target_tz = pytz.timezone(target_timezone_str)
+            except pytz.UnknownTimeZoneError:
+                print(f"Warning: Unknown timezone '{target_timezone_str}'. Defaulting to UTC for display.")
+                target_tz = pytz.utc
+
+
             recent_transactions_response = supabase.table('transactions') \
                 .select('''
                     transaction_code,
                     date,
                     total_amount,
-                    customer:customers ( name ),
-                    items:transaction_items ( products(name), quantity, price )
+                    customer:customers ( name ) 
                 ''') \
                 .order('date', desc=True) \
                 .limit(5) \
@@ -532,18 +570,32 @@ def dashboard():
             if recent_transactions_response.data:
                 for txn in recent_transactions_response.data:
                     customer_info = txn.get('customer')
-                    customer_name = customer_info['name'] if customer_info else 'Walk-in/N/A'
+                    customer_name = customer_info['name'] if customer_info and isinstance(customer_info, dict) else 'Walk-in/N/A'
+                    
+                    # Timezone conversion
+                    utc_datetime_obj = None
+                    if txn['date'].endswith('Z'):
+                        utc_datetime_obj = datetime.datetime.fromisoformat(txn['date'].replace('Z', '+00:00'))
+                    else: # Assuming it might already have an offset or be naive (less ideal)
+                        utc_datetime_obj = datetime.datetime.fromisoformat(txn['date'])
+                        if utc_datetime_obj.tzinfo is None: # If naive, assume it's UTC
+                           utc_datetime_obj = utc_datetime_obj.replace(tzinfo=datetime.timezone.utc)
+
+                    # Convert to target timezone
+                    local_datetime_obj = utc_datetime_obj.astimezone(target_tz)
                     
                     recent_transactions_data.append({
                         'transaction_code': txn['transaction_code'],
-                        'date_formatted': datetime.datetime.fromisoformat(txn['date'].replace('Z', '+00:00')).strftime('%d/%m/%y %I:%M %p'),
+                        'date_formatted': local_datetime_obj.strftime('%d/%m/%y %I:%M %p'), # Format the local time
                         'customer_name': customer_name,
                         'total': txn['total_amount']
-                        # items are not typically displayed in dashboard summary
                     })
+            print(f"--- DASHBOARD: Recent transactions fetched: {len(recent_transactions_data)} ---")
         except Exception as e_rt:
-            print(f"Error fetching recent transactions for dashboard: {e_rt}")
-            # flash("Could not load recent transactions.", "warning") # Optional
+            print(f"Error fetching/processing recent transactions for dashboard: {e_rt}")
+            import traceback
+            traceback.print_exc()
+
 
         return render_template(
             'dashboard.html',
@@ -556,11 +608,11 @@ def dashboard():
         )
 
     except Exception as e:
-        print(f"Dashboard error: {str(e)}")
-        flash(f"Error loading dashboard data.", "danger")
+        print(f"Dashboard error: {type(e).__name__} - {str(e)}")
+        import traceback
+        traceback.print_exc() 
+        flash(f"Error loading dashboard data. Please check server logs.", "danger")
         return render_template('dashboard.html', total_sales=0, total_transactions=0, top_products=[], low_stock_count=0, out_of_stock_count=0, recent_transactions=[], error="Could not load dashboard data.")
-
-
 
 # --- MODIFIED REGISTER ROUTE ---
 @app.route('/register', methods=['GET', 'POST'])
