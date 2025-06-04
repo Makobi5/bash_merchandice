@@ -256,8 +256,8 @@
         .transactions-table th:last-child {
              text-align: right;
         }
-         .transactions-table td:nth-child(4), /* Align Total column */
-        .transactions-table th:nth-child(4) {
+         .transactions-table td:nth-child(3), /* Align Total column (was 4, now 3 due to customer removal) */
+        .transactions-table th:nth-child(3) { /* Align Total column (was 4, now 3 due to customer removal) */
              text-align: right;
         }
 
@@ -387,22 +387,24 @@
                     <tbody>
                          {% for txn in recent_transactions %}
                             <tr>
-                                <td>{{ txn.id }}</td>
-                                <td>{{ txn.date }}</td>
+                                <td>{{ txn.transaction_code }}</td> {# MODIFIED: Was txn.id #}
+                                <td>{{ txn.date_formatted }}</td> {# MODIFIED: Was txn.date #}
                                 {# --- REMOVED Customer Data Cell --- #}
                                 {# <td>{{ txn.customer_name | default('N/A') }}</td> #}
                                 <td>{{ format_ugx(txn.total) }}</td>
                                 <td>
                                     {# Add links to view/edit if routes exist - THESE MIGHT NEED ADJUSTMENT #}
                                     {# You might need a specific 'view_transaction_details' route now #}
-                                    <a href="#" class="action-btn" title="View Details"><i class="fas fa-eye"></i></a>
-                                    {# <a href="{{ url_for('view_transaction', txn_id=txn.id) }}" class="action-btn" title="View Details"><i class="fas fa-eye"></i></a> #}
-                                    {# <a href="{{ url_for('edit_transaction', txn_id=txn.id) }}" class="action-btn" title="Edit Transaction"><i class="fas fa-edit"></i></a> #}
+                                    {# Example: Link to a modal or a detail page (if it exists) #}
+                                    {# For now, keeping a generic eye icon, assuming JS might handle it or it's a placeholder #}
+                                    <a href="#" class="action-btn view-transaction-details-btn" data-txn-code="{{ txn.transaction_code }}" title="View Details"><i class="fas fa-eye"></i></a>
+                                    {# If you have a route for transaction details by transaction_code: #}
+                                    {# <a href="{{ url_for('view_transaction_by_code', txn_code=txn.transaction_code) }}" class="action-btn" title="View Details"><i class="fas fa-eye"></i></a> #}
                                 </td>
                             </tr>
                          {% else %}
                             <tr class="empty-row">
-                                {# --- Adjusted colspan --- #}
+                                {# Colspan remains 4 as customer column is removed #}
                                 <td colspan="4">No recent transactions found.</td>
                             </tr>
                          {% endfor %}
@@ -484,7 +486,17 @@
                     window.print(); 
                 });
             }
+
+            // Optional: Add event listener for view details buttons if you implement a modal
+            // document.querySelectorAll('.view-transaction-details-btn').forEach(button => {
+            //     button.addEventListener('click', function(event) {
+            //         event.preventDefault();
+            //         const transactionCode = this.dataset.txnCode;
+            //         // Here you would typically fetch details via API and show in a modal
+            //         alert('View details for transaction: ' + transactionCode);
+            //         // Example: fetch(`/api/transaction/details/${transactionCode}`).then(...)
+            //     });
+            // });
         });
     </script>
 {% endblock %}
-
